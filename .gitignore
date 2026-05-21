@@ -1,0 +1,155 @@
+# ============================================================
+#  PhishMind Local CTI Edition — .gitignore
+#  Protects secrets, caches, and environment-specific files
+# ============================================================
+
+
+# ── Secrets & Environment ─────────────────────────────────────
+.env
+.env.local
+.env.development
+.env.production
+.env.staging
+*.env
+
+# Streamlit secrets (alternative to .env)
+.streamlit/secrets.toml
+
+
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# Distribution / packaging
+build/
+dist/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env/
+pip-selfcheck.json
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+
+# ── Testing & Coverage ────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+nosetests.xml
+test-results/
+
+
+# ── IDEs & Editors ────────────────────────────────────────────
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm / JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*#
+.#*
+
+
+# ── Operating System ──────────────────────────────────────────
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+
+# ── Logs & Temp Files ─────────────────────────────────────────
+*.log
+*.logs
+logs/
+log/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.pid
+
+
+# ── Streamlit ─────────────────────────────────────────────────
+# Keep .streamlit/config.toml (non-secret) but ignore secrets
+.streamlit/secrets.toml
+# Streamlit cache
+.streamlit/cache/
+
+
+# ── Analysis Outputs / Reports ────────────────────────────────
+# Don't commit generated CTI reports (may contain sensitive IOCs)
+reports/
+exports/
+output/
+*.json.report
+*.cti.json
+
+
+# ── Jupyter (if used for research) ────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+
+# ── Docker (if containerised later) ──────────────────────────
+.dockerignore
+docker-compose.override.yml
+
+
+# ── Dependency lock files (optional — uncomment if desired) ───
+# Pipfile.lock
+# poetry.lock

@@ -1,0 +1,46 @@
+# GhostWire CTI v6 — Pinned Dependencies
+# SECURITY: All versions pinned with == to prevent supply-chain attacks.
+# To update: audit changelog first, then update version + re-test.
+# Last pinned: 2026-05
+
+# Core UI
+streamlit==1.45.0
+
+# Config / env
+python-dotenv==1.2.2
+
+# AI (local Ollama — no data leaves machine)
+ollama==0.4.7
+
+# HTTP client
+requests==2.33.1
+
+# DNS
+dnspython==2.7.0
+
+# Domain parsing
+tldextract==5.1.3
+python-whois==0.9.4
+
+# URL validation
+validators==0.34.0
+
+# Data / charting
+plotly==6.1.1
+pandas==3.0.2
+
+# PDF processing (read)
+pypdf==5.9.0
+
+# PDF generation (reports — includes native chart drawing)
+reportlab==4.4.4
+
+# Browser automation (screenshot engine — JS disabled, no-sandbox removed)
+playwright==1.56.0
+
+# Image processing (email screenshot OCR — size-limited via _safe_open_image)
+pillow==12.1.1
+
+# v6: No new dependencies — async_runner uses stdlib concurrent.futures only
+# v6: pydeck REMOVED — was causing map bug (requires MAPBOX_API_KEY)
+#     Map now uses Plotly scatter_geo (offline, no token needed)

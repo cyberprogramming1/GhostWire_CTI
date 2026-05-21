@@ -1,0 +1,66 @@
+[theme]
+base                     = "dark"
+backgroundColor          = "#060a10"
+secondaryBackgroundColor = "#080d15"
+textColor                = "#c0d4e8"
+font                     = "monospace"
+
+[server]
+headless         = true
+port             = 8501
+enableCORS       = false
+# SECURITY: Bind to localhost only — prevents LAN access without a reverse proxy
+address          = "localhost"
+# SECURITY: Max upload size 50MB (Streamlit default is 200MB)
+# Prevents large file DoS against forensic engine
+maxUploadSize    = 50
+
+# ── Content Security Policy ───────────────────────────────────────────────────
+# Restricts which resources the browser is allowed to load.
+# Prevents XSS, clickjacking, and injected script execution.
+#
+# Directives explained:
+#   default-src 'self'        — only load resources from same origin by default
+#   script-src  'self' 'unsafe-inline'
+#                             — Streamlit requires unsafe-inline for its own JS;
+#                               narrow this to a hash if you control the build
+#   style-src   'self' 'unsafe-inline'
+#                             — Streamlit inline styles required
+#   img-src     'self' data:  — allow data: URIs (base64 thumbnails in reports)
+#   connect-src 'self'        — XHR/fetch only to same origin (no data exfil)
+#   frame-ancestors 'none'    — blocks iframe embedding (clickjacking defence)
+#   object-src  'none'        — disables Flash, Silverlight, and plugins
+#   base-uri    'self'        — prevents <base> injection attacks
+#   form-action 'self'        — form submissions only to same origin
+#
+# NOTE: if you add third-party map tiles (Mapbox, OpenStreetMap) you must
+# add their domain to img-src and connect-src.
+contentSecurityPolicy = """
+  default-src 'self';
+  script-src  'self' 'unsafe-inline';
+  style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src    'self' https://fonts.gstatic.com;
+  img-src     'self' data: blob:;
+  connect-src 'self';
+  frame-ancestors 'none';
+  object-src  'none';
+  base-uri    'self';
+  form-action 'self';
+"""
+
+# Additional security-relevant headers injected by Streamlit's web server.
+# These harden the HTTP layer independently of CSP.
+[server.headers]
+# Prevents browsers from MIME-sniffing response content types
+"X-Content-Type-Options"  = "nosniff"
+# Blocks the page from being loaded in any frame or iframe (belt + braces alongside CSP)
+"X-Frame-Options"          = "DENY"
+# Forces HTTPS for 1 year, includes subdomains (only enable behind TLS reverse proxy)
+# "Strict-Transport-Security" = "max-age=31536000; includeSubDomains"
+# Limits referrer info sent to external sites — protects target URLs in logs
+"Referrer-Policy"          = "no-referrer"
+# Disables browser features not needed by the app
+"Permissions-Policy"       = "geolocation=(), microphone=(), camera=()"
+
+[browser]
+gatherUsageStats = false
