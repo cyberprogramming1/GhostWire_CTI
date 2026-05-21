@@ -2,19 +2,6 @@
 utils/sandbox.py
 ----------------
 Sandbox Behavioral Analysis Engine — GhostWire CTI v6.
-
-Simulates the logic of tools like Any.Run / JoeSandbox by performing
-STATIC behavioral pattern matching on the URL and page content.
-
-Since we cannot execute JavaScript or follow live redirects without
-risk, this engine uses:
-  • HTTP header analysis (safe HEAD request)
-  • Page content fingerprinting (safe GET with strict timeout)
-  • Behavioral pattern matching (credential harvesting, drive-by, malware)
-  • Threat intelligence pattern library
-
-All requests use a short timeout and a neutral User-Agent.
-Content is NEVER executed — only read as text.
 """
 
 import re

@@ -2,25 +2,6 @@
 frontend/components.py
 ----------------------
 Reusable UI components for GhostWire CTI v6.
-
-All HTML-generating functions live here.
-app.py only calls these — zero raw HTML in app.py.
-
-Exports:
-  - make_gauge()          Plotly risk gauge
-  - threat_banner()       Big colored threat level banner
-  - engine_score_bars()   All 8 engine bars rendered
-  - flag_list()           Detection signal list
-  - ioc_chips()           IOC badge row
-  - signal_pill()         Single behavioral signal pill
-  - cert_table()          SSL certificate key-value table
-  - kv_row()              Generic key-value row
-  - mitre_card()          MITRE ATT&CK tactic card (v5 redesign)
-  - confidence_panel()    Score confidence display
-  - source_badge()        VT/AbuseIPDB/DNS source result badge
-  - override_banner()     Infrastructure override alert
-  - verdict_box()         Full verdict narrative
-  - mitigation_list()     Ordered mitigation steps
 """
 
 from __future__ import annotations

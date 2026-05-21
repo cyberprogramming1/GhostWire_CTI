@@ -2,11 +2,6 @@
 pipelines/pipeline_url.py
 --------------------------
 GhostWire CTI v6 — Pipeline A: URL / Domain / IP analysis.
-
-v6 improvements:
-  - Extracted from monolithic app.py (Problem #2 fix)
-  - Uses async_runner for parallel engine execution (Problem #3 fix)
-    → 3-5x faster: VT + AbuseIPDB + Shodan + GreyNoise run concurrently
 """
 from __future__ import annotations
 

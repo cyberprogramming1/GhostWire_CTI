@@ -2,26 +2,6 @@
 backend/audit_log.py
 --------------------
 Audit Logging — GhostWire CTI v6.1
-
-Writes structured audit entries to a local JSONL file.
-Each analysis request is logged with:
-  - timestamp (UTC)
-  - pipeline type (url/file/email/ip)
-  - target (URL, filename, IP — defanged + truncated)
-  - verdict + score
-  - engines triggered
-  - analysis duration
-
-Security:
-  - Targets are DEFANGED before logging (hxxps://, [.] notation)
-    so audit logs cannot contain accidental clickable live URLs that
-    SIEM tools, log viewers, or email clients might auto-resolve.
-  - Targets are truncated to 80 chars.
-  - Log is written locally only — never sent anywhere.
-
-Usage:
-    from backend.audit_log import log_analysis
-    log_analysis(pipeline="url", target="http://evil.com", score=87, ...)
 """
 
 from __future__ import annotations

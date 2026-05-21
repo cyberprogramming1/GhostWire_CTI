@@ -2,17 +2,6 @@
 config.py
 ---------
 GhostWire CTI v6 — Configuration loader.
-
-Reads API keys and settings from environment variables or .env file.
-NEVER hardcodes secrets. All values default to empty string if unset.
-
-Security:
-  - Values read via os.environ — no eval, no exec
-  - .env file loaded via python-dotenv (path-safe)
-  - Config object is read-only after construction
-  - API keys never logged; checked only for truthiness
-  - Multi-key rotation for HA API (round-robin on 429)
-  - defang_url() ensures URLs in logs are never clickable
 """
 
 from __future__ import annotations

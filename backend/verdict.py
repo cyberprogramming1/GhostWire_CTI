@@ -2,17 +2,6 @@
 utils/verdict.py
 ----------------
 Verdict Calculator — GhostWire CTI v6 v4
-
-The single authoritative function `calculate_verdict()` is the final
-decision layer.  It receives the aggregated score + engine results and
-produces a structured Verdict object consumed by the UI and cti_report.
-
-Override priority (highest → lowest):
-  1. Infrastructure Override  (VT > 5 malicious → CRITICAL, always)
-  2. Brand Squatting          (keyword penalty applied to score first)
-  3. Subdomain Trap           (free-hosting entropy replaces WHOIS)
-  4. Weighted Confidence      (sandbox > AI NLP in weighting)
-  5. Normal scoring           (sum of all engines)
 """
 
 from __future__ import annotations

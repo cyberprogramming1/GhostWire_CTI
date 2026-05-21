@@ -2,13 +2,6 @@
 frontend/styles.py
 ------------------
 All CSS for GhostWire CTI v6.
-Imported once in app.py via inject_css().
-
-Design principles:
-  - Dark terminal aesthetic with neon accents
-  - Space Mono for data/code, Syne for UI labels
-  - Consistent CSS variable system
-  - MITRE ATT&CK cards styled separately for prominence
 """
 
 GLOBAL_CSS = """

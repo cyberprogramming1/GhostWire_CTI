@@ -1,22 +1,6 @@
 """
 app.py — GhostWire CTI v6
---------------------------
-Entry point only. All pipeline logic has been extracted to:
-  pipelines/pipeline_url.py      (Problem #2 fix — modularisation)
-  pipelines/pipeline_hash.py
-  pipelines/pipeline_email.py
-  pipelines/pipeline_ip.py
-  pipelines/pipeline_sandbox.py
-
-v6 changes vs v5:
-  #1  Interactive MITRE ATT&CK heatmap (Plotly, clickable)
-  #2  app.py refactored — pipelines extracted to separate modules
-  #3  Parallel engine execution via ThreadPoolExecutor (async_runner.py)
-  #4  PDF now includes native score gauge (donut) + engine bar chart
-  #6  Map bug fixed — pure Plotly scatter_geo (no Mapbox/pydeck token needed)
-  #7  Sandbox status messages differentiate URL vs Hash/IP/Domain correctly
 """
-
 from __future__ import annotations
 
 import sys

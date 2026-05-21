@@ -2,18 +2,6 @@
 utils/hash_engine.py
 --------------------
 File & Hash Analysis Engine — GhostWire CTI v6.
-
-Capabilities:
-  • SHA-256 / MD5 / SHA-1 hash → VirusTotal file reputation
-  • File upload → compute hash → VT lookup
-  • File metadata extraction:
-      - PDF: author, creator tool, creation date
-      - Office (docx/xlsx): author, last modified, macro detection
-      - PE (exe/dll): compile timestamp, imphash, section entropy
-  • Weaponized document indicators:
-      - Macro presence (VBA/XLM)
-      - High section entropy (packed/encrypted PE)
-      - Suspicious embedded objects
 """
 
 from __future__ import annotations

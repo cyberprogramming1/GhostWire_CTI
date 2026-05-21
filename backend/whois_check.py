@@ -2,10 +2,6 @@
 utils/whois_check.py
 --------------------
 WHOIS & DNS Domain Age Engine for GhostWire CTI Local.
-
-Resolves the registrar creation date of a domain and flags newly
-registered domains, which are a strong indicator of phishing
-infrastructure set up just-in-time for an attack.
 """
 
 import socket

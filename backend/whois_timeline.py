@@ -2,16 +2,6 @@
 backend/whois_timeline.py
 --------------------------
 WHOIS + DNS Change Timeline Engine — GhostWire CTI v6
-
-Builds a visual timeline of:
-  - Domain registration date
-  - Domain expiry date
-  - First/last DNS resolution (from HackerTarget)
-  - Certificate history milestones (from crt.sh)
-  - Key risk events (domain age, rapid cert issuance)
-
-Returns structured data consumed by frontend/timeline_renderer.py
-for Plotly timeline visualization.
 """
 
 from __future__ import annotations

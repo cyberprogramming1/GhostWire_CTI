@@ -2,36 +2,6 @@
 backend/ip_intel.py
 -------------------
 Deep IP Intelligence Engine — GhostWire CTI v6
-
-Multi-source analysis (no Shodan key needed):
-
-  SOURCE 1: ip-api.com        — geo, ASN, proxy/datacenter/VPN flags (free)
-  SOURCE 2: AbuseIPDB v2      — abuse confidence, report count, categories
-  SOURCE 3: VirusTotal v3     — engine detections, community votes,
-                                 comments, communicating files
-  SOURCE 4: ipinfo.io         — ASN enrichment, org, privacy flags (free tier)
-  SOURCE 5: Tor Project       — bulk exit node list (official)
-  SOURCE 6: HackerTarget      — passive DNS / reverse IP (free)
-  SOURCE 7: bgpview.io        — ASN + prefix details (free)
-  SOURCE 8: RDNS + banner     — PTR record analysis, port inference
-
-Scoring (v5 — calibrated, multi-source):
-  AbuseIPDB ≥ 90%              → +40
-  AbuseIPDB ≥ 70%              → +30
-  AbuseIPDB ≥ 50%              → +22
-  AbuseIPDB ≥ 20%              → +12
-  AbuseIPDB reports > 0        → +5
-  VT IP malicious ≥ 5          → +25
-  VT IP malicious 1-4          → +15
-  VT community votes malicious → +4 each (max +20)
-  VT community comments NLP    → up to +20
-  VT communicating files mal.  → +15 each (max +25)
-  Tor exit node (official)     → +22
-  VPN/anonymizer               → +12
-  Bulletproof hosting          → +18
-  Privacy/datacenter flag      → +8
-  High-volume passive DNS      → +8
-  Max score                    → 100
 """
 
 from __future__ import annotations

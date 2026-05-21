@@ -1,13 +1,4 @@
-"""
-utils/reputation.py
--------------------
-Infrastructure Reputation Engine — GhostWire CTI v6.
 
-Integrates:
-  • VirusTotal v3  — URL & domain malicious engine detections
-  • AbuseIPDB v2   — IP abuse confidence score & Tor detection
-  • DNS Inspector  — A/MX/NS/TXT records, SPF, DMARC validation
-"""
 
 import os
 import socket

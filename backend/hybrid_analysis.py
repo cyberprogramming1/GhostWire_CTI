@@ -2,27 +2,6 @@
 backend/hybrid_analysis.py
 --------------------------
 Hybrid Analysis Sandbox Engine — GhostWire CTI v6
-https://www.hybrid-analysis.com/docs/api/v2
-
-Supports:
-  • URL sandbox submission + quick-scan
-  • File submission (PDF, Office, PE, scripts)
-  • Hash lookup (SHA-256 / MD5 / SHA-1)
-  • Domain / IP search via terms API
-  • Full report parsing: verdict, MITRE ATT&CK, network IOCs,
-    process tree, extracted strings, AV detections, signatures
-
-Security hardening:
-  • API key never logged or exposed in flags/errors
-  • All user input sanitized before query construction
-  • Hash format validated via regex before API call
-  • File size re-validated server-side (max 100MB HA limit)
-  • Timeouts on all requests (connect=10s, read=60s)
-  • No pickle / eval / exec anywhere
-  • Response JSON parsed with strict field access (no eval)
-  • Input type whitelist: url / file / hash / domain / ip
-  • SSRF-safe: only calls hybrid-analysis.com (external only)
-  • Rate-limit aware: 429 handled with backoff, not crash
 """
 
 from __future__ import annotations

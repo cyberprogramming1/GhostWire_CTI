@@ -1,16 +1,3 @@
-"""
-utils/cti_report.py
--------------------
-CTI Report Generator — GhostWire CTI v6.
-
-Aggregates all engine results into a structured Cyber Threat Intelligence
-report following the format:
-  • Threat Level
-  • Key Indicators (IOCs)
-  • Analyst's Summary
-  • Final Verdict & Logic
-  • Mitigation Steps
-"""
 
 from dataclasses import dataclass, field
 from typing import Optional

@@ -2,11 +2,6 @@
 frontend/url_renderer.py
 ------------------------
 Renders the full URL/Domain/IP analysis results page.
-
-Receives pre-computed engine results and verdict, produces
-the complete Streamlit UI for Pipeline A.
-
-Separated from app.py to keep the orchestrator clean.
 """
 
 from __future__ import annotations

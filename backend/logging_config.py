@@ -2,23 +2,6 @@
 backend/logging_config.py
 --------------------------
 GhostWire CTI v6 — Centralised logging configuration.
-
-Call setup_logging() once at app startup (app.py imports it).
-All backend modules use:
-    import logging
-    logger = logging.getLogger(__name__)
-
-Log level is controlled by the DEBUG env var:
-    DEBUG=false  (default) → WARNING level — only real problems logged
-    DEBUG=true             → DEBUG level   — full engine telemetry
-
-Log format: structured, timestamp + module + level + message.
-Log output: stderr (Streamlit captures and shows it in terminal).
-
-Security:
-    - API keys are NEVER passed to logger — engines already mask them
-    - Target URLs logged only at DEBUG level, truncated to 80 chars
-    - No log file created here (audit JSONL handles persistent logging)
 """
 
 from __future__ import annotations

@@ -2,39 +2,6 @@
 utils/forensic_engine.py
 ------------------------
 Deep File Forensic Analysis Engine — GhostWire CTI v6 v4
-
-Implements all 5 analysis dimensions:
-
-  1. Static & Metadata Analysis   — ExifTool-style anomaly detection
-     • Timestamps (future, epoch-0, mismatched)
-     • MIME vs extension mismatch
-     • Author/creator anomalies
-     • Overlay data / trailing bytes / NTFS ADS markers
-
-  2. Internal Content Inspection  — structural + NLP
-     • PDF action tree (/JS /OpenAction /EmbeddedFiles /Launch)
-     • VBA macro extraction + intent analysis
-     • PowerShell / Shellcode pattern matching
-     • Steganography markers (LSB, appended ZIP, polyglot)
-     • ZIP bomb detection (compression ratio)
-
-  3. AI NLP Script Analysis       — Ollama LLM
-     • Reads extracted code/text
-     • Judges intent vs benign baseline
-     • Attributes malware family from behavioural language
-     • Explains "clean container" discrepancy
-
-  4. Container Discrepancy Logic  — why hash ≠ container scan
-     • Dormant trigger detection
-     • Environment-keying patterns
-     • Sandbox evasion signatures
-
-  5. VirusTotal Engine Divergence — why CrowdStrike flags but others don't
-     • Engine-specific heuristic analysis
-     • Community notes parsing
-     • C2 domain / IP extraction from file strings
-
-Output: ForensicReport dataclass consumed by the UI renderer.
 """
 
 from __future__ import annotations

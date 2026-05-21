@@ -2,15 +2,6 @@
 frontend/extra_widgets.py
 --------------------------
 Extra UI Widgets — GhostWire CTI v6
-
-  - render_whois_timeline()    WHOIS + cert history Plotly timeline
-  - render_screenshot_preview() Playwright site thumbnail
-  - render_threat_map()        IP geolocation map (Plotly — no Mapbox token needed)
-  - render_shodan_panel()      Shodan port/CVE/tag panel
-  - render_greynoise_panel()   GreyNoise classification panel
-
-FIX v6: render_threat_map now uses Plotly scatter_geo (offline, no Mapbox/pydeck token needed).
-        pydeck requires MAPBOX_API_KEY env var — removed entirely to eliminate map bug.
 """
 
 from __future__ import annotations

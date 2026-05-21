@@ -1,16 +1,6 @@
 """
 backend/screenshot_engine.py
 -----------------------------
-Website Screenshot Engine — GhostWire CTI v6 (SECURITY HARDENED)
-
-Security fixes applied:
-  - JavaScript DISABLED (was enabled — drive-by JS exploit risk)
-  - --no-sandbox REMOVED; replaced with proper sandbox flags
-  - Network request blocking: only allows page HTML load, blocks all
-    JS/XHR/WebSocket/fetch to prevent SSRF and data exfil from renderer
-  - Strict 8-second navigation timeout
-  - Isolated browser context (no cookies, no storage, no permissions)
-  - Returns PNG bytes or None on any failure — never raises
 """
 
 from __future__ import annotations

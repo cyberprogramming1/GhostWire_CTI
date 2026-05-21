@@ -1,17 +1,4 @@
-"""
-utils/deception.py
-------------------
-Technical Deception Analysis Engine — GhostWire CTI v6.
 
-Detects:
-  • Typosquatting against top-50 global brands
-  • Subdomain hijacking / deep nesting patterns
-  • Hidden redirect chains (URL-in-URL, open redirects)
-  • Homoglyph / punycode IDN attacks
-  • Suspicious TLDs catalogued from phishing campaigns
-  • URL shortener abuse
-  • Misleading path obfuscation tricks
-"""
 
 import re
 import unicodedata

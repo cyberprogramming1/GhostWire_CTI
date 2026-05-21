@@ -3,19 +3,6 @@ backend/external_intel.py
 -------------------------
 External Threat Intelligence — Shodan + GreyNoise
 GhostWire CTI v6
-
-SHODAN:
-  - Host information (open ports, banners, vulns, tags)
-  - InternetDB (free, no key) — ports/tags/CPEs/vulns for any IP
-  - Full API (with key) — full banner grab, CVE list, geolocation
-
-GREYNOISE:
-  - Community API (free) — is this IP a known internet scanner/noise?
-  - Full API (with key)  — intent, actor, tags, CVE exploitation attempts
-  - Key insight: GreyNoise separates benign scanners from malicious actors.
-    An IP mass-scanning the internet is different from a targeted attacker.
-
-Both sources feed score adjustments and MITRE tagging.
 """
 
 from __future__ import annotations

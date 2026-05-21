@@ -1,35 +1,4 @@
-"""
-backend/pdf_report.py
----------------------
-GhostWire CTI v6 — Universal PDF Report Generator
 
-Generates professional Cyber Threat Intelligence reports for ALL pipelines:
-  • Pipeline A  — URL / Domain analysis
-  • Pipeline B  — File / Hash forensics
-  • Pipeline C  — Email / SMS forensics
-  • Pipeline D  — Standalone IP Intelligence
-  • Pipeline E  — Hybrid Analysis Sandbox
-
-Security hardening:
-  • All user-supplied strings sanitised via _safe_str() before PDF embedding
-  • No eval / exec / pickle anywhere in this module
-  • Output is always bytes via BytesIO — no file path accepted as input
-  • Integer scores clamped to valid range before rendering
-  • Control characters stripped from all text fields
-  • PDF injection via null bytes prevented
-
-Report sections (URL pipeline — full):
-  1. Cover page  — target, score, threat level, timestamp
-  2. Executive Summary
-  3. Engine Score Breakdown (bar chart table)
-  4. Source Intelligence (VT, AbuseIPDB, Shodan, GreyNoise)
-  5. Indicators of Compromise
-  6. Detection Signals per engine
-  7. MITRE ATT&CK Tactics
-  8. Behavioral Signal Summary
-  9. Mitigation Steps
- 10. Footer / TLP:AMBER disclaimer
-"""
 
 from __future__ import annotations
 

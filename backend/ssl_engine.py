@@ -2,32 +2,6 @@
 utils/ssl_engine.py
 --------------------
 SSL/TLS Certificate Analysis Engine — GhostWire CTI v6.
-
-Analyses the TLS certificate of a target domain and flags indicators
-commonly seen in phishing infrastructure:
-
-  • Free CA issuers (Let's Encrypt, ZeroSSL) combined with young domains
-  • Self-signed or untrusted certificates
-  • Certificate age and remaining validity
-  • Subject Alternative Name (SAN) anomalies
-  • Wildcard abuse
-  • Certificate Transparency log monitoring for look-alike certs
-  • Mismatch between cert CN and actual hostname
-
-Risk logic:
-  ─────────────────────────────────────────────────────────────────
-  Free CA  alone          → +5 pts  (legitimate sites use them too)
-  Free CA + domain < 30d  → +25 pts (strong phishing combo)
-  Free CA + domain < 90d  → +15 pts
-  Self-signed             → +20 pts
-  Cert expired            → +15 pts
-  Hostname mismatch       → +20 pts
-  Wildcard SAN abuse      → +10 pts
-  Very short validity     → +8 pts  (< 30 days issued)
-  ─────────────────────────────────────────────────────────────────
-
-All checks are performed using Python's built-in `ssl` module — no
-third-party TLS libraries required.
 """
 
 from __future__ import annotations

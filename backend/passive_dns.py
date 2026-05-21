@@ -1,14 +1,4 @@
-"""
-utils/passive_dns.py
---------------------
-Passive DNS History & IP Intelligence Engine — GhostWire CTI v6.
 
-Provides:
-  • Passive DNS history via SecurityTrails / HackerTarget (free tier)
-  • Parked domain detection via content fingerprinting
-  • IP intelligence: Tor, VPN, hosting provider classification
-  • ASN lookup for infrastructure profiling
-"""
 
 from __future__ import annotations
 

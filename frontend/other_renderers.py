@@ -1,10 +1,6 @@
 """
 frontend/other_renderers.py
 ---------------------------
-Renders results for pipelines B, C, D:
-  - render_hash_results()   File / Hash analysis
-  - render_email_results()  Email & SMS forensics
-  - render_ip_results()     Standalone IP intelligence
 """
 
 from __future__ import annotations

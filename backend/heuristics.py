@@ -3,8 +3,6 @@ utils/heuristics.py
 -------------------
 URL Heuristics Engine for GhostWire CTI Local.
 
-Performs fast, offline technical analysis of a URL to identify
-structural red flags commonly found in phishing links.
 """
 
 import re

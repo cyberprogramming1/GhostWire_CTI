@@ -2,18 +2,6 @@
 frontend/ha_renderer.py
 -----------------------
 Hybrid Analysis Sandbox Results Renderer — GhostWire CTI v6
-
-Renders the full HAResult into the GhostWire dark-terminal UI.
-Uses the same component system as url_renderer.py.
-
-Sections:
-  1. Verdict banner + gauge + environment info
-  2. Threat score + AV detection panel
-  3. Network IOCs (hosts, DNS, HTTP, compromised)
-  4. Behavioral analysis (processes, signatures, registry, mutexes)
-  5. MITRE ATT&CK matrix
-  6. AV detection breakdown
-  7. Submit link + raw IOC chips
 """
 
 from __future__ import annotations

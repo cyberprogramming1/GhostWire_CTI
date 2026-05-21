@@ -3,15 +3,6 @@ backend/scoring.py
 ------------------
 Advanced Scoring Engine & Behavioral Signal Aggregator
 GhostWire CTI v6
-
-FALSE POSITIVE FIXES (v5):
-  - Score weights recalibrated with normalization factor
-  - Infrastructure override threshold raised: 5 -> 8 malicious engines
-  - Brand squatting requires 2+ keywords (was 1)
-  - AbuseIPDB < 30% no longer triggers high_abuse_ip signal
-  - Subdomain trap: free hosting alone not penalized (only if entropy > 3.5)
-  - Sandbox weight reduced: 1.4 -> 1.2
-  - Overall confidence metric added for transparency
 """
 
 from __future__ import annotations

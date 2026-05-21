@@ -2,26 +2,6 @@
 backend/async_runner.py
 ------------------------
 GhostWire CTI v6 — Parallel engine runner.
-
-Runs all CTI engines concurrently using ThreadPoolExecutor so slow
-network sources (VirusTotal, Shodan, GreyNoise) don't block each other.
-
-Architecture:
-  - Each engine remains synchronous (simple, testable, no async complexity)
-  - ThreadPoolExecutor runs them concurrently; wall-clock time ≈ slowest engine
-  - Total speedup vs sequential: ~3-5x on typical network conditions
-  - max_workers capped at 8 to avoid exhausting the HA API or OS file descriptors
-
-Security:
-  - No global state shared between threads
-  - Each engine creates its own requests.Session (no shared session)
-  - Timeouts enforced per-engine (connect=10s, read=60s inside each engine)
-  - Exceptions per engine are caught and returned as typed error stubs
-    so one slow/broken source never crashes the pipeline
-
-Usage:
-    from backend.async_runner import run_engines_parallel
-    results = run_engines_parallel(target, vt_key=..., abuse_key=..., ...)
 """
 
 from __future__ import annotations
