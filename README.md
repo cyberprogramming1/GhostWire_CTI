@@ -458,6 +458,7 @@ DEBUG=false
 # ── Audit Log ────────────────────────────────────
 # Default: ~/.ghostwire/audit.jsonl
 # GHOSTWIRE_LOG_PATH=/custom/path/audit.jsonl
+# docker exec ghostwire cat /app/logs/audit.jsonl
 ```
 
 ---
@@ -587,31 +588,6 @@ pytest tests/ --cov=backend --cov-report=term-missing
 
 ---
 
-## `> cat changelog.md`
-
-```
-v6   — 10-Engine parallel architecture (concurrent.futures)
-       URLhaus abuse.ch integration
-       GreyNoise community API
-       PDF report (ReportLab, fully offline charts)
-       STIX 2.1 export engine
-       AZ regional whitelist (.gov.az, .edu.az, .mil.az)
-       WHOIS injection prevention
-       Non-root Docker user
-       Session-level rate limiting
-       Audit log v2 (session ID, hostname, request sequence)
-
-v6.1 — OTX AlienVault integration (MITRE ATT&CK, actor, pulses)
-       HA Key Rotation Pool (10 keys, thread-safe, cooldown)
-       Plotly map replaced (pydeck removed — no MAPBOX_API_KEY needed)
-       Screenshot engine default=OFF (SSRF risk mitigation)
-       Score normalization factor introduced (reduced FP rate)
-       INFRA_OVERRIDE threshold raised 5→8 (fewer false positives)
-       SQUATTING_PENALTY reduced 50→35 (score calibration)
-```
-
----
-
 ## `> cat mitre.md`
 
 GhostWire maps analysis findings to the MITRE ATT&CK framework:
@@ -633,18 +609,8 @@ ATT&CK technique IDs from OTX pulses are rendered as chips in the UI panel.
 
 ---
 
-## `> cat license.md`
-
-```
-MIT License
-
-You are free to use, copy, modify, and distribute this project.
-Condition: retain the original license text.
-
-Warning: This tool is intended solely for lawful security research,
-authorized penetration testing, and protection of your own systems.
-Unauthorized use against third-party systems is illegal and unethical.
-```
+## LICENSE 
+[LICENSE](../GhostWire_CTI_v6/LICENSE)
 
 ---
 
