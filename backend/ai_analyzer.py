@@ -12,12 +12,24 @@ be parsed deterministically without brittle regex matching.
 """
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Optional
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Ollama client helper — reads OLLAMA_BASE_URL from environment
+# ---------------------------------------------------------------------------
+
+def _get_ollama_client():
+    """Return an ollama.Client pointed at the correct host."""
+    import ollama  # type: ignore
+    host = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    return ollama.Client(host=host)
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +167,7 @@ this domain — they may be malware samples uploaded by users of a legitimate se
 or actual malware hosted by a malicious domain. Context matters."""
 
     try:
-        import ollama  # type: ignore
+        client = _get_ollama_client()
     except ImportError:
         result.error = "ollama not installed"
         return result
@@ -168,7 +180,7 @@ or actual malware hosted by a malicious domain. Context matters."""
 
     for candidate in models_to_try:
         try:
-            response = ollama.chat(
+            response = client.chat(
                 model=candidate,
                 messages=messages,
                 options={"temperature": 0.05, "num_predict": 300},
@@ -220,22 +232,27 @@ def _parse_llm_json(raw: str) -> Optional[dict]:
     # Strip markdown code fences if present
     cleaned = re.sub(r"```(?:json)?", "", raw).strip()
 
-    # Find the first {...} block
-    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-    if not match:
-        return None
-
+    # Try direct parse first
     try:
-        return json.loads(match.group())
+        return json.loads(cleaned)
     except json.JSONDecodeError:
-        return None
+        pass
+
+    # Fall back to regex extraction of first {...} block
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+
+    return None
 
 
 def _score_from_parsed(parsed: dict) -> tuple[int, list[str]]:
     """
-    Convert the parsed JSON flags into a numeric risk score.
+    Convert parsed LLM JSON into a numeric risk score and human-readable flags.
 
-    Scoring:
         Urgency detected        → +15 pts
         Financial threat        → +10 pts
         Manipulation detected   → +5 pts
@@ -283,7 +300,7 @@ def analyze_text(
         summary from the LLM.
     """
     try:
-        import ollama  # type: ignore
+        client = _get_ollama_client()
     except ImportError:
         result = AIAnalysisResult()
         result.error = "ollama Python library not installed — skipping AI analysis"
@@ -298,7 +315,7 @@ def analyze_text(
 
     for candidate_model in models_to_try:
         try:
-            response = ollama.chat(
+            response = client.chat(
                 model=candidate_model,
                 messages=messages,
                 options={
@@ -328,11 +345,6 @@ def analyze_text(
                 result.flags.append("AI found no significant social-engineering signals")
 
             return result  # Success — exit loop
-
-        except ollama.ResponseError as exc:
-            # Model not pulled yet or Ollama server error
-            last_error = f"Ollama error with model '{candidate_model}': {exc}"
-            continue
 
         except Exception as exc:
             last_error = f"Unexpected error with model '{candidate_model}': {exc}"
@@ -374,7 +386,7 @@ def generate_ha_ai_summary(ha_result, model: str = "phi3:mini") -> HASummaryResu
     HASummaryResult with narrative, threat assessment, and recommended actions.
     """
     try:
-        import ollama
+        client = _get_ollama_client()
     except ImportError:
         r = HASummaryResult()
         r.error = "Ollama library not installed"
@@ -444,7 +456,7 @@ Respond ONLY with valid JSON — no markdown, no code fences, no extra text:
 
     for candidate in ordered:
         try:
-            response = ollama.chat(
+            response = client.chat(
                 model=candidate,
                 messages=[
                     {"role": "system", "content": system_prompt},

@@ -64,3 +64,12 @@ contentSecurityPolicy = """
 
 [browser]
 gatherUsageStats = false
+
+# ── Mapbox / st.map ───────────────────────────────────────────────────────────
+# st.map Streamlit 1.45.0-da Carto tile-larını işlədir — token opsionaldır.
+# Token olmadan: Carto default basemap (pulsuz, tam işləyir)
+# Token ilə    : Daha yüksək zoom keyfiyyəti + custom style-lar
+# Token almaq  : https://account.mapbox.com → Access tokens
+# .env faylına : MAPBOX_TOKEN=pk.xxxx
+[mapbox]
+token = ""

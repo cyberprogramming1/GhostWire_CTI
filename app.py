@@ -29,6 +29,58 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_css()
+# ─────────────────────────────────────────────────────────────────────────────
+# Rate Limiting
+# ─────────────────────────────────────────────────────────────────────────────
+# VT free tier: 4 req/dəq — arxasındakı həqiqi limit budur.
+# Hər analiz minimum RATE_LIMIT_SECS saniyədən tez edilə bilməz.
+# session_state-də son sorğu zamanı saxlanır — Streamlit rerun-lar arasında persist.
+
+_RATE_LIMIT_SECS  = 5     # Minimum saniyə iki analiz arasında
+_MAX_REQ_PER_MIN  = 10    # 1 dəqiqədə maksimum sorğu sayı (VT limit: 4/dəq)
+_REQ_WINDOW_SECS  = 60    # Sayğac sıfırlama pəncərəsi (saniyə)
+
+
+def _check_rate_limit() -> bool:
+    """
+    True qaytarır — analiz davam etsin.
+    False qaytarır — limit aşılıb, st.warning göstər.
+
+    İki yoxlama:
+      1. Minimum fasilə: son sorğudan ən azı _RATE_LIMIT_SECS saniyə keçib?
+      2. Dəqiqə limiti: son 60 saniyədə _MAX_REQ_PER_MIN-dən çox sorğu var?
+    """
+    now = time.time()
+
+    # ── 1. Minimum fasilə yoxlaması ──────────────────────────
+    last = st.session_state.get("gw_last_req_time", 0)
+    elapsed = now - last
+    if elapsed < _RATE_LIMIT_SECS:
+        remaining = int(_RATE_LIMIT_SECS - elapsed) + 1
+        st.warning(
+            f"⏳ Çox sürətli — {remaining} saniyə gözlə. "
+            f"(VT free tier: 4 req/dəq)"
+        )
+        return False
+
+    # ── 2. Dəqiqə limiti yoxlaması ───────────────────────────
+    history: list = st.session_state.get("gw_req_history", [])
+    # 60 saniyədən köhnə sorğuları çıxar
+    history = [t for t in history if now - t < _REQ_WINDOW_SECS]
+    if len(history) >= _MAX_REQ_PER_MIN:
+        st.warning(
+            f"⏳ Dəqiqə limiti — son 60 saniyədə {_MAX_REQ_PER_MIN} analiz edildi. "
+            f"Bir az gözlə."
+        )
+        st.session_state["gw_req_history"] = history
+        return False
+
+    # ── Limitlər keçirsə — vaxtı yenilə ─────────────────────
+    history.append(now)
+    st.session_state["gw_last_req_time"] = now
+    st.session_state["gw_req_history"]   = history
+    return True
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Sidebar
@@ -37,16 +89,20 @@ inject_css()
 with st.sidebar:
     st.markdown('<p class="slabel">API Keys</p>', unsafe_allow_html=True)
 
-    vt_key     = cfg.VIRUSTOTAL_API_KEY
-    abuse_key  = cfg.ABUSEIPDB_API_KEY
-    shodan_key = cfg.SHODAN_API_KEY
-    ha_key     = cfg.HYBRID_ANALYSIS_API_KEY
+    vt_key      = cfg.VIRUSTOTAL_API_KEY
+    abuse_key   = cfg.ABUSEIPDB_API_KEY
+    shodan_key  = cfg.SHODAN_API_KEY
+    ha_key      = cfg.HYBRID_ANALYSIS_API_KEY
+    urlhaus_key = cfg.URLHAUS_API_KEY
+    otx_key     = cfg.OTX_API_KEY
 
     for label, key in [
         ("VIRUSTOTAL",       vt_key),
         ("ABUSEIPDB",        abuse_key),
         ("SHODAN",           shodan_key),
         ("HYBRID ANALYSIS",  ha_key),
+        ("URLHAUS",          urlhaus_key),
+        ("OTX (AlienVault)", otx_key),
     ]:
         c = "#00ffb4" if key else "#ff5f87"
         s = "LOADED ✓" if key else "NOT SET ✗"
@@ -75,10 +131,12 @@ with st.sidebar:
     run_ai         = st.toggle("AI NLP (Ollama)",         value=True)
     run_ssl        = st.toggle("SSL/TLS Certificate",     value=True)
     run_pdns       = st.toggle("Passive DNS + IP Intel",  value=True)
-    run_screenshot = st.toggle("Site Screenshot",         value=True)
+    run_screenshot = st.toggle("Site Screenshot",         value=False)  # Security: default off
     run_timeline   = st.toggle("WHOIS Timeline",          value=True)
     run_shodan     = st.toggle("Shodan Intel",            value=True)
     run_greynoise  = st.toggle("GreyNoise Context",       value=True)
+    run_urlhaus    = st.toggle("URLhaus (abuse.ch)",       value=True)
+    run_otx        = st.toggle("OTX Threat Intel",         value=True)
     run_ha         = st.toggle("Hybrid Analysis Sandbox", value=True)
 
     ha_env_map = {
@@ -266,6 +324,8 @@ if url_go:
     if len(raw) > 2048:
         st.error("❌ Input too long (max 2048 characters).")
         st.stop()
+    if not _check_rate_limit():
+        st.stop()
 
     from pipelines.pipeline_url import run as _run_url
     _run_url(
@@ -275,22 +335,29 @@ if url_go:
         run_ai=run_ai, run_sandbox=run_sandbox, run_ssl=run_ssl,
         run_pdns=run_pdns, run_screenshot=run_screenshot,
         run_timeline=run_timeline, run_shodan=run_shodan,
-        run_greynoise=run_greynoise,
+        run_greynoise=run_greynoise, run_urlhaus=run_urlhaus, run_otx=run_otx,
     )
 
 elif hash_go:
+    if not _check_rate_limit():
+        st.stop()
     from pipelines.pipeline_hash import run as _run_hash
     _run_hash(
         hash_input=hash_input,
         file_upload=file_upload,
         vt_key=vt_key,
+        run_urlhaus=run_urlhaus, run_otx=run_otx,
     )
 
 elif email_go:
+    if not _check_rate_limit():
+        st.stop()
     from pipelines.pipeline_email import run as _run_email
     _run_email(email_input=email_input, email_img=email_img)
 
 elif ip_go:
+    if not _check_rate_limit():
+        st.stop()
     ip_raw = ip_input.strip()
     if not ip_raw:
         st.warning("Please enter an IP address.")
@@ -300,9 +367,12 @@ elif ip_go:
         ip_raw=ip_raw,
         abuse_key=abuse_key, vt_key=vt_key, shodan_key=shodan_key,
         run_shodan=run_shodan, run_greynoise=run_greynoise,
+        run_urlhaus=run_urlhaus, run_otx=run_otx,
     )
 
 elif ha_go:
+    if not _check_rate_limit():
+        st.stop()
     from pipelines.pipeline_sandbox import run as _run_sandbox
     _run_sandbox(
         ha_input_type=ha_input_type,

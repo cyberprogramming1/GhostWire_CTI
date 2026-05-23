@@ -1,0 +1,69 @@
+# ============================================================
+#  GhostWire CTI v6.1 — .dockerignore
+# ============================================================
+
+# Secrets — heç vaxt image-ə daxil olmamalı
+.env
+.env.*
+*.env
+.streamlit/secrets.toml
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test faylları — runtime-da lazım deyil
+tests/
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker özü
+Dockerfile
+docker-compose.yml
+docker-compose.override.yml
+.dockerignore
+
+# Dev faylları
+.vscode/
+.idea/
+*.swp
+*~
+
+# Windows
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs + temp
+*.log
+logs/
+*.tmp
+*.bak
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Docs (runtime-da lazım deyil)
+README.md
+LICENSE
+DOCKER.md
+CHANGELOG.md
+
+# Böyük asset şəkilləri (gif-lər qalır — UI üçün lazım)
+assets/*.png

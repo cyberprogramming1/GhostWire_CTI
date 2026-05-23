@@ -163,13 +163,14 @@ def render_threat_map(
     """
     Display an interactive map showing the IP's geolocation.
 
-    v6 FIX: Uses Plotly scatter_geo with 'natural earth' projection.
-    - No Mapbox token required (pydeck required MAPBOX_API_KEY → broke silently)
-    - No pydeck dependency (st.pydeck_chart API changed in Streamlit ≥ 1.38)
-    - Works offline — uses built-in Plotly basemap
-    - Dark theme matching GhostWire palette
+    v6.1: st.map (Streamlit native — Carto tile basemap).
+    - MAPBOX_TOKEN opsionaldır — .env-də varsa daha yüksək zoom keyfiyyəti
+    - Token yoxdursa Carto default tile-ları işləyir (pulsuz, tokensiz)
+    - st.map Streamlit 1.45.0-da tam dəstəklənir
+    - Plotly scatter_geo fallback — st.map uğursuz olsa işə düşür
     """
-    import plotly.graph_objects as go
+    import os
+    import pandas as pd
 
     section_label("🗺 Threat Map — IP Geolocation")
 
@@ -179,6 +180,7 @@ def render_threat_map(
 
     loc_str = f"{city or ''} {country or ''}".strip() or ip
 
+    # Koordinat + yer məlumatı başlıq
     st.markdown(
         f'<div style="font-family:Space Mono,monospace;font-size:0.68rem;'
         f'color:#4a6a8a;margin-bottom:0.4rem">'
@@ -188,71 +190,70 @@ def render_threat_map(
         unsafe_allow_html=True,
     )
 
+    # DataFrame — st.map latitude/longitude sütunları tələb edir
+    df = pd.DataFrame({
+        "latitude":  [latitude],
+        "longitude": [longitude],
+    })
+
     try:
-        # Scattergeo — built-in Natural Earth basemap, no token, fully offline
-        fig = go.Figure(go.Scattergeo(
-            lat=[latitude],
-            lon=[longitude],
-            mode="markers+text",
-            marker=dict(
-                size=14,
-                color="#ff2d55",
-                symbol="circle",
-                line=dict(color="#ff6b8a", width=2),
-                opacity=0.95,
-            ),
-            text=[f"  {_html.escape(ip)}"],
-            textfont=dict(family="Space Mono, monospace", size=10, color="#ff6b8a"),
-            textposition="middle right",
-            hovertemplate=(
-                f"<b>{_html.escape(ip)}</b><br>"
-                f"Location: {_html.escape(loc_str)}<br>"
-                f"Lat: {latitude:.4f}  Lon: {longitude:.4f}"
-                "<extra></extra>"
-            ),
-            showlegend=False,
-        ))
-
-        fig.update_geos(
-            projection_type="natural earth",
-            showland=True,        landcolor="#0d1e2e",
-            showocean=True,       oceancolor="#060a10",
-            showcoastlines=True,  coastlinecolor="#1a2a3a",
-            showlakes=False,
-            showcountries=True,   countrycolor="#1a3a5a",
-            showframe=False,
-            bgcolor="#060a10",
-            center=dict(lat=latitude, lon=longitude),
-            lataxis_range=[max(-90, latitude - 35), min(90, latitude + 35)],
-            lonaxis_range=[max(-180, longitude - 55), min(180, longitude + 55)],
-        )
-
-        fig.update_layout(
-            height=350,
-            margin=dict(l=0, r=0, t=0, b=0),
-            paper_bgcolor="#060a10",
-            plot_bgcolor="#060a10",
-            geo_bgcolor="#060a10",
-        )
-
-        st.plotly_chart(
-            fig,
+        # st.map — Streamlit 1.45.0 native map (Carto tile basemap)
+        # MAPBOX_TOKEN .env-də varsa → .streamlit/config.toml [mapbox] token oxunur
+        # Token yoxdursa → Carto default tile-ları (pulsuz, tokensiz) işləyir
+        st.map(
+            df,
+            latitude="latitude",
+            longitude="longitude",
+            color="#ff2d55",      # GhostWire qırmızı marker
+            size=200,             # Marker ölçüsü (metr — zoom-a görə görünür)
+            zoom=6,               # Şəhər səviyyəsi zoom
             use_container_width=True,
-            config={"displayModeBar": False, "scrollZoom": False},
         )
 
     except Exception as e:
-        # Final fallback: plain coordinate display
-        st.markdown(
-            f'<div style="font-family:Space Mono,monospace;font-size:0.72rem;'
-            f'background:#0a1520;border:1px solid #1a2a3a;border-radius:8px;'
-            f'padding:1rem;color:#4a6a8a;text-align:center">'
-            f'📍 {_html.escape(ip)} · {_html.escape(loc_str)}<br>'
-            f'<span style="font-size:0.6rem">{latitude:.4f}°N, {longitude:.4f}°E</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-        st.caption(f"⚠ Interactive map unavailable: {e}")
+        # Fallback — Plotly scatter_geo (offline, tokensiz)
+        import plotly.graph_objects as go
+        try:
+            fig = go.Figure(go.Scattergeo(
+                lat=[latitude],
+                lon=[longitude],
+                mode="markers+text",
+                marker=dict(size=14, color="#ff2d55",
+                            line=dict(color="#ff6b8a", width=2)),
+                text=[f"  {_html.escape(ip)}"],
+                textfont=dict(family="Space Mono, monospace", size=10, color="#ff6b8a"),
+                textposition="middle right",
+                showlegend=False,
+            ))
+            fig.update_geos(
+                projection_type="natural earth",
+                showland=True,      landcolor="#0d1e2e",
+                showocean=True,     oceancolor="#060a10",
+                showcoastlines=True, coastlinecolor="#1a2a3a",
+                showcountries=True, countrycolor="#1a3a5a",
+                bgcolor="#060a10",
+                center=dict(lat=latitude, lon=longitude),
+                lataxis_range=[max(-90, latitude-35), min(90, latitude+35)],
+                lonaxis_range=[max(-180, longitude-55), min(180, longitude+55)],
+            )
+            fig.update_layout(
+                height=350, margin=dict(l=0, r=0, t=0, b=0),
+                paper_bgcolor="#060a10", plot_bgcolor="#060a10",
+            )
+            st.plotly_chart(fig, use_container_width=True,
+                           config={"displayModeBar": False})
+        except Exception:
+            # Son fallback — sadə koordinat göstər
+            st.markdown(
+                f'<div style="font-family:Space Mono,monospace;font-size:0.72rem;'
+                f'background:#0a1520;border:1px solid #1a2a3a;border-radius:8px;'
+                f'padding:1rem;color:#4a6a8a;text-align:center">'
+                f'📍 {_html.escape(ip)} · {_html.escape(loc_str)}<br>'
+                f'<span style="font-size:0.6rem">{latitude:.4f}°N, {longitude:.4f}°E</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        st.caption(f"⚠ st.map unavailable, fallback used: {e}")
 
 
 # ── Shodan Panel ──────────────────────────────────────────────────────────────
@@ -451,3 +452,8 @@ def render_greynoise_panel(gn_res) -> None:
     st.markdown(flag_list(gn_res.flags), unsafe_allow_html=True)
     for e in gn_res.errors:
         st.caption(f"⚠ {e}")
+
+
+# ── URLhaus Panel ─────────────────────────────────────────────────────────────
+# v6.1: URLhaus engine UI paneli — url/hash/ip mode-aware rendering
+from frontend.urlhaus_panel import render_urlhaus_panel  # noqa: F401

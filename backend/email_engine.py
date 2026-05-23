@@ -132,6 +132,10 @@ class EmailForensicsResult:
     errors: list[str] = field(default_factory=list)
 
 
+# ── Image size limits — defined here so all OCR functions can reference them ──
+MAX_IMAGE_DIM   = 4096          # px per side — pixel bomb prevention
+MAX_IMAGE_BYTES = 20_000_000    # 20 MB raw bytes before decode
+
 # ── OCR ───────────────────────────────────────────────────────────────────────
 
 def _ocr_playwright(image_bytes: bytes) -> tuple[Optional[str], str]:
@@ -157,9 +161,7 @@ def _ocr_playwright(image_bytes: bytes) -> tuple[Optional[str], str]:
     return None, "playwright_failed"
 
 
-# ── Max image dimensions: prevent pixel bomb (1px PNG → 50000×50000) ──────
-MAX_IMAGE_DIM   = 4096   # px per side
-MAX_IMAGE_BYTES = 20_000_000  # 20MB raw bytes before decode
+# (MAX_IMAGE_DIM / MAX_IMAGE_BYTES moved above OCR section)
 
 
 def _safe_open_image(image_bytes: bytes):
@@ -214,8 +216,33 @@ def _ocr_ollama_vision(image_bytes: bytes) -> tuple[Optional[str], str]:
         return None, "ollama_unavailable"
 
 
+def _ocr_tesseract(image_bytes: bytes) -> tuple[Optional[str], str]:
+    """Tesseract OCR — most portable, no GPU needed, fast."""
+    try:
+        import pytesseract
+        img = _safe_open_image(image_bytes)
+        # PSM 6 = assume uniform block of text (good for email screenshots)
+        config = "--oem 3 --psm 6"
+        text = pytesseract.image_to_string(img, config=config)
+        text = text.strip()
+        return (text, "tesseract") if len(text) > 15 else (None, "tesseract_empty")
+    except ImportError:
+        return None, "tesseract_not_installed"
+    except Exception as exc:
+        logger.warning("Tesseract OCR error: %s", exc)
+        return None, "tesseract_error"
+
+
 def extract_text_from_image(image_bytes: bytes) -> tuple[Optional[str], str]:
-    for fn in [_ocr_easyocr, _ocr_playwright, _ocr_ollama_vision]:
+    """
+    Try OCR methods in priority order:
+      1. Tesseract  — fast, portable, no deps beyond pytesseract
+      2. EasyOCR    — better accuracy for complex layouts (needs GPU or is slow)
+      3. Playwright — browser-based text extraction (needs chromium)
+      4. Ollama     — LLaVA vision model (needs local Ollama with llava model)
+    Returns (text, method_name) or (None, "all_ocr_failed").
+    """
+    for fn in [_ocr_tesseract, _ocr_easyocr, _ocr_playwright, _ocr_ollama_vision]:
         text, method = fn(image_bytes)
         if text and len(text.strip()) > 15:
             return text, method
@@ -618,6 +645,9 @@ def analyze_email(
     """Full email forensic pipeline: OCR → Sender extraction → VT+AbuseIPDB → AI → Score."""
     vt_api_key = vt_api_key or os.getenv("VIRUSTOTAL_API_KEY")
     abuse_api_key = abuse_api_key or os.getenv("ABUSEIPDB_API_KEY")
+    # Normalize: empty string → None so the "not text" guard works correctly
+    if text is not None:
+        text = text.strip() or None
     result = EmailForensicsResult()
 
     # Step 1: OCR

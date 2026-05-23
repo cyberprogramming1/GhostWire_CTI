@@ -4,7 +4,7 @@
 # Last pinned: 2026-05
 
 # Core UI
-streamlit==1.45.0
+streamlit>=1.40.0
 
 # Config / env
 python-dotenv==1.2.2
@@ -26,8 +26,8 @@ python-whois==0.9.4
 validators==0.34.0
 
 # Data / charting
-plotly==6.1.1
-pandas==3.0.2
+plotly>=5.0.0
+pandas>=2.2.0
 
 # PDF processing (read)
 pypdf==5.9.0
@@ -39,7 +39,13 @@ reportlab==4.4.4
 playwright==1.56.0
 
 # Image processing (email screenshot OCR — size-limited via _safe_open_image)
-pillow==12.1.1
+pillow>=10.0.0
+
+# OCR engines (email screenshot text extraction)
+# pytesseract wraps Tesseract-OCR engine (must also install: apt install tesseract-ocr)
+# EasyOCR is optional (GPU improves speed; CPU works but slow on large images)
+pytesseract>=0.3.13
+easyocr>=1.7.0   # optional: better accuracy, heavier install
 
 # v6: No new dependencies — async_runner uses stdlib concurrent.futures only
 # v6: pydeck REMOVED — was causing map bug (requires MAPBOX_API_KEY)

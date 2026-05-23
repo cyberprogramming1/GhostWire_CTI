@@ -141,6 +141,8 @@ class _Config:
         "ABUSEIPDB_API_KEY",
         "SHODAN_API_KEY",
         "GREYNOISE_API_KEY",
+        "URLHAUS_API_KEY",
+        "OTX_API_KEY",
         "HYBRID_ANALYSIS_API_KEY",
         "OLLAMA_BASE_URL",
         "OLLAMA_MODEL",
@@ -155,6 +157,8 @@ class _Config:
         self.ABUSEIPDB_API_KEY       = os.environ.get("ABUSEIPDB_API_KEY",       "")
         self.SHODAN_API_KEY          = os.environ.get("SHODAN_API_KEY",          "")
         self.GREYNOISE_API_KEY       = os.environ.get("GREYNOISE_API_KEY",       "")
+        self.URLHAUS_API_KEY         = os.environ.get("URLHAUS_API_KEY",         "")
+        self.OTX_API_KEY              = os.environ.get("OTX_API_KEY",              "")
         # Primary key — use ha_key_pool.get() for rotation-aware access
         self.HYBRID_ANALYSIS_API_KEY = os.environ.get("HYBRID_ANALYSIS_API_KEY", "")
         self.OLLAMA_BASE_URL         = os.environ.get("OLLAMA_BASE_URL",         "http://localhost:11434")

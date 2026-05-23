@@ -1,0 +1,88 @@
+# ============================================================
+#  GhostWire CTI v6.1 — docker-compose.yml
+#  Platform: Windows Docker Desktop (WSL2 backend)
+#
+#  Servisler:
+#    ghostwire  — Streamlit CTI app  → http://localhost:8501
+#    ollama     — Local LLM (CPU)    → yalnız daxili network
+#
+#  Network:
+#    ghostwire_internal — izolə edilmiş (ollama ↔ ghostwire)
+#    ghostwire_egress   — xarici API-lara çıxış (VT, AbuseIPDB, ...)
+# ============================================================
+
+services:
+
+  # ── GhostWire CTI ──────────────────────────────────────────
+  ghostwire:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghostwire-cti:6.1
+    container_name: ghostwire
+
+    ports:
+      - "8501:8501"
+
+    env_file:
+      - .env
+    environment:
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      GHOSTWIRE_LOG_PATH: "/app/logs/audit.jsonl"
+      STREAMLIT_SERVER_FILE_WATCHER_TYPE: "none"
+
+    volumes:
+      - ghostwire_logs:/app/logs
+
+    networks:
+      - ghostwire_internal
+      - ghostwire_egress
+
+    depends_on:
+      - ollama
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    restart: unless-stopped
+
+
+  # ── Ollama Local LLM (CPU mode) ────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ghostwire-ollama
+
+    environment:
+      OLLAMA_NUM_PARALLEL: "2"
+
+    volumes:
+      - ollama_data:/root/.ollama
+
+    networks:
+      - ghostwire_internal
+      - ghostwire_egress
+
+    restart: unless-stopped
+
+
+# ── Networks ─────────────────────────────────────────────────
+networks:
+  ghostwire_internal:
+    internal: true
+    driver: bridge
+
+  ghostwire_egress:
+    driver: bridge
+
+
+# ── Volumes ──────────────────────────────────────────────────
+volumes:
+  ghostwire_logs:
+    driver: local
+
+  ollama_data:
+    driver: local

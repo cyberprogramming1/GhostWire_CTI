@@ -35,6 +35,8 @@ def render_url_results(
     duration:    float,
     timestamp:   str,
     legitimacy   = None,   # DomainLegitimacyResult | None
+    urlhaus_res  = None,   # URLhausResult | None
+    otx_res      = None,   # OTXResult | None
 ) -> None:
 
     st.markdown("---")
@@ -296,5 +298,49 @@ def render_url_results(
     with vc2:
         section_label("🛡 Mitigation Steps")
         st.markdown(mitigation_list(verdict.mitigation), unsafe_allow_html=True)
+
+    # ── Row 7: STIX 2.1 / TAXII Export ───────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    try:
+        from frontend.stix_panel import render_stix_export_panel
+
+        # Gather context for STIX export
+        _malware_family = None
+        _sha256 = None
+        _md5 = None
+        _threat_actors: list[str] = []
+        _mitre_ids: list[str] = []
+        _ip_address = getattr(rep_res, "ip_address", None)
+
+        # Try to get urlhaus malware family (urlhaus_res now passed as parameter)
+        if urlhaus_res is not None:
+            if getattr(urlhaus_res, "signature", None):
+                _malware_family = urlhaus_res.signature
+            if getattr(urlhaus_res, "sha256_hash", None):
+                _sha256 = urlhaus_res.sha256_hash
+            if getattr(urlhaus_res, "md5_hash", None):
+                _md5 = urlhaus_res.md5_hash
+
+        # OTX adversaries and MITRE IDs (otx_res now passed as parameter)
+        if otx_res is not None:
+            _threat_actors = getattr(otx_res, "adversaries", [])[:3]
+            _mitre_ids = getattr(otx_res, "attack_ids", [])[:6]
+
+        render_stix_export_panel(
+            target_url=target,
+            threat_level=verdict.threat_level,
+            score=verdict.score,
+            iocs=verdict.iocs,
+            flags=verdict.flags,
+            malware_family=_malware_family,
+            threat_actors=_threat_actors,
+            ip_address=_ip_address,
+            verdict_text=verdict.full_verdict,
+            sha256_hash=_sha256,
+            md5_hash=_md5,
+            mitre_ids=_mitre_ids,
+        )
+    except Exception as _stix_err:
+        st.caption(f"⚠ STIX export error: {_stix_err}")
 
     footer(timestamp, "10-ENGINE · URL/DOMAIN")

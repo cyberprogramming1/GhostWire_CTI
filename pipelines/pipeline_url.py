@@ -2,6 +2,9 @@
 pipelines/pipeline_url.py
 --------------------------
 GhostWire CTI v6 — Pipeline A: URL / Domain / IP analysis.
+
+v6.1: URLhaus engine added to parallel engine pool.
+      urlhaus_res extracted from results dict and passed to renderer.
 """
 from __future__ import annotations
 
@@ -23,7 +26,9 @@ from frontend.url_renderer  import render_url_results
 from frontend.extra_widgets import (
     render_whois_timeline, render_screenshot_preview,
     render_threat_map, render_shodan_panel, render_greynoise_panel,
+    render_urlhaus_panel,   # NEW — URLhaus panel renderer
 )
+from frontend.otx_panel import render_otx_panel  # v7 — OTX panel
 
 
 def _collect_iocs(*engine_results) -> list[str]:
@@ -63,6 +68,8 @@ def run(
     run_timeline: bool,
     run_shodan: bool,
     run_greynoise: bool,
+    run_urlhaus: bool = True,   # NEW — URLhaus toggle (default on)
+    run_otx:     bool = True,   # v7  — OTX threat intel toggle
 ) -> None:
     """Execute the full URL/Domain/IP CTI pipeline and render results."""
 
@@ -70,9 +77,9 @@ def run(
     prog = st.progress(0, "Initialising CTI pipeline (parallel engines)…")
     prog.progress(10, "Launching parallel engine pool…")
 
-    # ── Parallel execution (Problem #3 fix) ──────────────────────────
-    # All network-bound engines run concurrently in a ThreadPoolExecutor.
-    # Wall-clock time ≈ slowest single engine, not sum of all engines.
+    # ── Parallel execution ────────────────────────────────────────────
+    # URLhaus (query_url_host) runs alongside all other network engines.
+    # If URLHAUS_API_KEY is missing, engine degrades gracefully and skips.
     results = run_engines_parallel(
         target,
         vt_key        = vt_key,
@@ -85,18 +92,22 @@ def run(
         run_pdns      = run_pdns,
         run_shodan    = run_shodan,
         run_greynoise = run_greynoise,
+        run_urlhaus   = run_urlhaus,   # NEW
+        run_otx       = run_otx,       # v7
     )
 
-    h_res       = results["heuristics"]
-    w_res       = results["whois"]
-    ai_res      = results["ai"]
-    rep_res     = results["reputation"]
-    dec_res     = results["deception"]
-    sb_res      = results["sandbox"]
-    ssl_res     = results["ssl"]
-    pdns_res    = results["pdns"]
-    shodan_res  = results["shodan"]
+    h_res         = results["heuristics"]
+    w_res         = results["whois"]
+    ai_res        = results["ai"]
+    rep_res       = results["reputation"]
+    dec_res       = results["deception"]
+    sb_res        = results["sandbox"]
+    ssl_res       = results["ssl"]
+    pdns_res      = results["pdns"]
+    shodan_res    = results["shodan"]
     greynoise_res = results["greynoise"]
+    urlhaus_res   = results["urlhaus"]   # NEW
+    otx_res       = results.get("otx")   # v7
 
     prog.progress(80, "Engines complete — computing score…")
 
@@ -118,8 +129,39 @@ def run(
         legitimacy=legitimacy_res,
     )
 
+    # ── Integrate URLhaus score contribution ──────────────────────────
+    # URLhaus is run in parallel but its score_contribution is not passed
+    # into compute_final_score (which only knows about the 8 core engines).
+    # We add it post-normalisation and cap at 100.
+    if urlhaus_res and getattr(urlhaus_res, "score_contribution", 0) > 0:
+        uh_boost = urlhaus_res.score_contribution
+        final_score = min(final_score + uh_boost, 100)
+        extra_flags.append(
+            f"🦠 URLhaus score contribution: +{uh_boost} "
+            f"(query_status={urlhaus_res.query_status}, "
+            f"url_status={urlhaus_res.url_status or 'n/a'}, "
+            f"urls_found={urlhaus_res.urls_found})"
+        )
+
+    # ── Integrate OTX score (corroborated — requires VT confirmation) ──
+    # OTX engine ran with vt_malicious=0 (VT wasn't done yet at task launch).
+    # Re-run scoring now that we have rep_res.vt_malicious.
+    if otx_res and getattr(otx_res, "available", False):
+        from backend.otx_engine import _score_result as _otx_rescore
+        # Clear existing flags/iocs/score and re-score with real VT data
+        otx_res.flags.clear()
+        otx_res.iocs.clear()
+        otx_res.score_contribution = 0
+        _otx_rescore(otx_res, vt_malicious=getattr(rep_res, "vt_malicious", 0))
+        if otx_res.score_contribution > 0:
+            final_score = min(final_score + otx_res.score_contribution, 100)
+            extra_flags.append(
+                f"🛸 OTX score contribution: +{otx_res.score_contribution} pts "
+                f"({otx_res.pulse_count} pulses, VT={getattr(rep_res, 'vt_malicious', 0)} malicious)"
+            )
+
     prog.progress(92, "Computing verdict…")
-    all_iocs = _collect_iocs(rep_res, dec_res, sb_res, ssl_res, pdns_res)
+    all_iocs = _collect_iocs(rep_res, dec_res, sb_res, ssl_res, pdns_res, urlhaus_res, otx_res)
     verdict  = calculate_verdict(
         score             = final_score,
         engines_triggered = _engines_triggered(h_res, w_res, ai_res, rep_res, dec_res, sb_res, ssl_res, pdns_res),
@@ -137,7 +179,7 @@ def run(
     prog.progress(100, f"Done in {dur:.1f}s (parallel engines).")
     time.sleep(0.3); prog.empty()
 
-    # ── WHOIS Timeline (sequential — uses domain string only) ────────
+    # ── WHOIS Timeline ───────────────────────────────────────────────
     timeline_res = None
     if run_timeline:
         import tldextract
@@ -147,12 +189,14 @@ def run(
             from backend.whois_timeline import build_whois_timeline
             timeline_res = build_whois_timeline(tl_domain)
 
-    # ── Render ──────────────────────────────────────────────────────
+    # ── Render main results ──────────────────────────────────────────
     render_url_results(
         target, verdict, sig, extra_flags,
         h_res, w_res, ai_res, rep_res, dec_res, sb_res,
         ssl_res, pdns_res, all_iocs, dur, ts,
         legitimacy=legitimacy_res,
+        urlhaus_res=urlhaus_res,
+        otx_res=otx_res,
     )
 
     if timeline_res:
@@ -162,9 +206,17 @@ def run(
     if shodan_res and getattr(shodan_res, "available", False):
         render_shodan_panel(shodan_res)
     elif run_shodan and shodan_res:
-        render_shodan_panel(shodan_res)  # show even if unavailable (shows error gracefully)
+        render_shodan_panel(shodan_res)
     if greynoise_res and run_greynoise:
         render_greynoise_panel(greynoise_res)
+
+    # NEW: Render URLhaus panel (always shown if urlhaus was run)
+    if run_urlhaus and urlhaus_res:
+        render_urlhaus_panel(urlhaus_res, mode="url")
+
+    # v7: Render OTX panel
+    if run_otx and otx_res:
+        render_otx_panel(otx_res, mode="url")
 
     if getattr(rep_res, "ip_address", None):
         try:

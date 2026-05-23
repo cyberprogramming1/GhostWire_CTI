@@ -40,11 +40,14 @@ def make_gauge(score: int, colour: str) -> go.Figure:
 # ── Threat Banner ─────────────────────────────────────────────────────────────
 
 def threat_banner(threat_level: str, score: int, colour: str, bg_colour: str) -> str:
+    glow = colour + "55"
     return (
-        f'<div class="threat-banner" style="background:{bg_colour};border:1px solid {colour}44">'
-        f'<div class="threat-label">Threat Level</div>'
-        f'<div class="threat-value" style="color:{colour}">{threat_level}</div>'
-        f'<div class="threat-score" style="color:{colour}">{score}/100</div>'
+        f'<div class="cti-threat-banner-hacker" style="border-color:{colour}55;'
+        f'box-shadow:0 0 40px {glow} inset,0 0 20px {glow}">'
+        f'<div class="ctb-label" style="color:{colour}88">// THREAT CLASSIFICATION</div>'
+        f'<div class="ctb-value" style="color:{colour}">{threat_level}</div>'
+        f'<div class="ctb-score" style="color:{colour}66">'
+        f'RISK SCORE: {score}/100</div>'
         f'</div>'
     )
 
@@ -277,7 +280,10 @@ def verdict_box(text: str, colour: str) -> str:
     import html as _hv
     safe_c = _hv.escape(str(colour)) if str(colour).startswith("#") else "#00ffb4"
     return (
-        f'<div class="verdict-box" style="border-left-color:{safe_c}">'
+        f'<div class="cti-verdict-hacker" style="border-color:{safe_c}33;color:{safe_c}cc">'
+        f'<span style="color:{safe_c};font-size:0.62rem;letter-spacing:0.2em;'
+        f'text-transform:uppercase;display:block;margin-bottom:0.5rem;opacity:0.7">'
+        f'// VERDICT OUTPUT</span>'
         + _hv.escape(str(text)) +
         '</div>'
     )
@@ -287,9 +293,13 @@ def verdict_box(text: str, colour: str) -> str:
 
 def mitigation_list(steps: list[str]) -> str:
     import html as _hm
-    return '<div class="card">' + "".join(
-        f'<div class="mit-step">{_hm.escape(str(s))}</div>' for s in steps
-    ) + '</div>'
+    items = "".join(
+        f'<div class="cti-mit-item">{_hm.escape(str(s))}</div>' for s in steps
+    )
+    return (
+        f'<div style="background:rgba(0,20,10,0.5);border:1px solid rgba(0,255,180,0.1);'
+        f'border-radius:8px;overflow:hidden">{items}</div>'
+    )
 
 
 # ── Engine Card (Detection Signals) ──────────────────────────────────────────
@@ -314,9 +324,12 @@ def section_label(text: str) -> None:
 def footer(timestamp: str, mode: str = "10-ENGINE") -> None:
     st.markdown(
         f'<div style="text-align:center;margin-top:2.5rem;padding-bottom:2rem;'
-        f'font-family:Space Mono,monospace;font-size:0.6rem;color:#1a2a3a;'
-        f'letter-spacing:0.1em">GHOSTWIRE CTI v6  ·  {mode}  ·  '
-        f'ALL PROCESSING ON-DEVICE  ·  {timestamp}</div>',
+        f'font-family:Space Mono,monospace;font-size:0.6rem;'
+        f'color:rgba(0,255,180,0.2);letter-spacing:0.15em;'
+        f'border-top:1px solid rgba(0,255,180,0.06);padding-top:1rem">'
+        f'<span style="color:rgba(0,255,180,0.5)">GHOSTWIRE CTI v7</span>'
+        f'  ·  {mode}  ·  ALL PROCESSING ON-DEVICE  ·  '
+        f'<span style="color:rgba(0,200,255,0.3)">{timestamp}</span></div>',
         unsafe_allow_html=True,
     )
 

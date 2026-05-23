@@ -239,6 +239,111 @@ section[data-testid="stSidebar"]{
   min-width:260px !important;
   visibility:visible !important;
 }
+
+/* ── CTI Report — Hacker Theme ── */
+.cti-report-wrap{
+  background:linear-gradient(180deg,#020608 0%,#060a10 100%);
+  border:1px solid rgba(0,255,180,0.15);border-radius:14px;
+  padding:1.5rem;position:relative;overflow:hidden
+}
+.cti-report-wrap::before{
+  content:"";position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;
+  background:repeating-linear-gradient(
+    90deg,transparent,transparent 60px,rgba(0,255,180,0.015) 60px,rgba(0,255,180,0.015) 61px
+  ),repeating-linear-gradient(
+    0deg,transparent,transparent 60px,rgba(0,200,255,0.01) 60px,rgba(0,200,255,0.01) 61px
+  );
+  z-index:0
+}
+.cti-report-header{
+  font-family:"Space Mono",monospace;font-size:0.58rem;
+  letter-spacing:0.35em;text-transform:uppercase;
+  color:#00ffb4;border-bottom:1px solid rgba(0,255,180,0.12);
+  padding-bottom:0.6rem;margin-bottom:1rem;
+  display:flex;justify-content:space-between;align-items:center
+}
+.cti-report-header .cti-tlp{
+  background:rgba(255,180,0,0.12);border:1px solid rgba(255,180,0,0.3);
+  color:#ffb400;padding:0.15rem 0.55rem;border-radius:4px;font-size:0.55rem
+}
+.cti-section-title{
+  font-family:"Space Mono",monospace;font-size:0.6rem;
+  letter-spacing:0.3em;text-transform:uppercase;
+  color:#00c8ff;margin:1.2rem 0 0.5rem;
+  border-left:3px solid #00c8ff;padding-left:0.6rem
+}
+.cti-verdict-hacker{
+  background:linear-gradient(135deg,#020a06 0%,#010608 100%);
+  border:1px solid rgba(0,255,180,0.25);border-radius:10px;
+  padding:1rem 1.2rem;font-family:"Space Mono",monospace;
+  font-size:0.72rem;line-height:1.8;color:#7af0c0;
+  position:relative;overflow:hidden
+}
+.cti-verdict-hacker::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,#00ffb4,#00c8ff,#ff2d8a)
+}
+.cti-summary-hacker{
+  background:rgba(0,20,10,0.6);border:1px solid rgba(0,255,180,0.1);
+  border-radius:8px;padding:0.85rem 1rem;
+  font-family:"Space Mono",monospace;font-size:0.7rem;
+  line-height:1.8;color:#8ab8a8
+}
+.cti-mit-item{
+  font-family:"Space Mono",monospace;font-size:0.72rem;color:#c0e8d0;
+  padding:0.4rem 0.4rem 0.4rem 0.8rem;
+  border-bottom:1px solid rgba(0,255,180,0.06);line-height:1.5;
+  border-left:2px solid rgba(0,255,180,0.2)
+}
+.cti-mit-item:last-child{border-bottom:none}
+.cti-ioc-wrap{display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.4rem}
+.cti-ioc-item{
+  font-family:"Space Mono",monospace;font-size:0.6rem;
+  background:rgba(255,45,85,0.1);border:1px solid rgba(255,45,85,0.25);
+  color:#ff8aaa;border-radius:4px;padding:0.18rem 0.5rem;word-break:break-all
+}
+.cti-score-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin:0.6rem 0
+}
+.cti-score-cell{
+  background:rgba(0,255,180,0.03);border:1px solid rgba(0,255,180,0.1);
+  border-radius:8px;padding:0.5rem 0.7rem;text-align:center
+}
+.cti-score-cell .csc-label{
+  font-family:"Space Mono",monospace;font-size:0.53rem;
+  letter-spacing:0.15em;text-transform:uppercase;color:#3a6a5a
+}
+.cti-score-cell .csc-val{
+  font-family:"Space Mono",monospace;font-size:1.2rem;
+  font-weight:700;color:#00ffb4;line-height:1.1
+}
+.cti-timestamp{
+  font-family:"Space Mono",monospace;font-size:0.6rem;
+  color:#2a4a3a;text-align:right;margin-top:0.8rem;letter-spacing:0.08em
+}
+/* Matrix rain scanline overlay on banner */
+.cti-threat-banner-hacker{
+  background:linear-gradient(135deg,rgba(2,8,4,0.95) 0%,rgba(2,6,10,0.95) 100%);
+  border:1px solid;border-radius:12px;padding:1.5rem;text-align:center;
+  position:relative;overflow:hidden;margin:0.6rem 0 1rem
+}
+.cti-threat-banner-hacker::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(
+    0deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 2px,rgba(0,0,0,0.15) 2px,rgba(0,0,0,0.15) 4px
+  )
+}
+.cti-threat-banner-hacker .ctb-label{
+  font-family:"Space Mono",monospace;font-size:0.55rem;
+  letter-spacing:0.4em;text-transform:uppercase;opacity:0.5
+}
+.cti-threat-banner-hacker .ctb-value{
+  font-family:"Space Mono",monospace;font-size:2.8rem;font-weight:700;
+  line-height:1;text-shadow:0 0 30px currentColor
+}
+.cti-threat-banner-hacker .ctb-score{
+  font-family:"Space Mono",monospace;font-size:0.8rem;opacity:0.4;margin-top:0.3rem
+}
 </style>
 """
 
