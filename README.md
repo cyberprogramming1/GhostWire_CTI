@@ -610,7 +610,7 @@ ATT&CK technique IDs from OTX pulses are rendered as chips in the UI panel.
 ---
 
 ## LICENSE 
-[LICENSE](../GhostWire_CTI_v6/LICENSE)
+[LICENSE](LICENSE)
 
 ---
 
