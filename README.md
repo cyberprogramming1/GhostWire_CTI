@@ -194,7 +194,6 @@ HYBRID ANALYSIS (Cloud Sandbox)
   ├─ Key rotation: up to 10 API keys in pool (auto-rotates on 429)
   └─ Polling: real-time status updates (max ~2 min wait)
 ```
-
 ---
 
 ## `> cat architecture.txt`
