@@ -1053,11 +1053,16 @@ def _ai_nlp_analysis(corpus: list[str], filename: str, ollama_model: str = "phi3
     )
 
     try:
-        import ollama
+        import ollama, os
         import json
         import re as re2
 
-        response = ollama.chat(
+        # FIX v7: use OLLAMA_BASE_URL from environment — same pattern as ai_analyzer.py
+        # Previously used bare ollama.chat() which always hit localhost:11434
+        host = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        client = ollama.Client(host=host)
+
+        response = client.chat(
             model=ollama_model,
             messages=[
                 {"role": "system", "content": _NLP_SYSTEM},

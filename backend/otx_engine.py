@@ -2,38 +2,6 @@
 backend/otx_engine.py
 ----------------------
 GhostWire CTI v7 — AlienVault OTX (Open Threat Exchange) Engine.
-
-OTX is operated by LevelBlue (formerly AT&T Cybersecurity).
-Free API — no rate limit on indicator lookups with a registered key.
-API docs: https://otx.alienvault.com/assets/static/external_api.html
-
-What OTX adds that other engines DON'T provide:
-  1. Pulse count  — how many threat intel reports mention this indicator
-  2. MITRE ATT&CK IDs — T1566, T1059 etc. from community pulses
-  3. Threat actor attribution — "Lazarus Group", "APT28" etc.
-  4. Pulse names  — human-readable campaign context ("Emotet Wave 2024")
-  5. Adversary tags — malware families, targeted industries
-
-Auth:
-  OTX_API_KEY — required (free at https://otx.alienvault.com/settings)
-  Header: X-OTX-APIKEY
-
-Graceful degradation:
-  If key is missing or OTX is unreachable, returns empty OTXResult.
-  Pipeline continues unaffected — OTX is additive context, not blocking.
-
-Scoring philosophy (FP-safe):
-  OTX score ONLY contributes to final_score when corroborated:
-    pulse_count >= 10 AND vt_malicious > 0  → +12 pts
-    pulse_count >= 3  AND vt_malicious > 0  → +6  pts
-    pulse_count alone (no VT)               → 0 pts (context only)
-  This prevents false positives from stale/low-quality OTX pulses.
-
-Three lookup modes:
-  query_indicator(indicator, "domain")  → pipeline_url
-  query_indicator(indicator, "IPv4")    → pipeline_ip
-  query_indicator(indicator, "url")     → pipeline_url (full URL)
-  query_indicator(indicator, "FileHash-MD5" | "FileHash-SHA256") → pipeline_hash
 """
 
 from __future__ import annotations

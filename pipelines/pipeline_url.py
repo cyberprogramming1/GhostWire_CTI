@@ -2,9 +2,6 @@
 pipelines/pipeline_url.py
 --------------------------
 GhostWire CTI v6 — Pipeline A: URL / Domain / IP analysis.
-
-v6.1: URLhaus engine added to parallel engine pool.
-      urlhaus_res extracted from results dict and passed to renderer.
 """
 from __future__ import annotations
 
@@ -77,9 +74,17 @@ def run(
     prog = st.progress(0, "Initialising CTI pipeline (parallel engines)…")
     prog.progress(10, "Launching parallel engine pool…")
 
+    # ── Detect if target is an IP address ────────────────────────────
+    # FIX v7: IP entered in URL/Domain tab needs different handling:
+    #   - AI Legitimacy assessment is meaningless for IPs → skip
+    #   - URLhaus should use query_host directly → handled in async_runner
+    #   - GreyNoise needs ip_address parameter → auto-detected in async_runner
+    import re as _re
+    _IP_PATTERN = _re.compile(r'^\d{1,3}(\.\d{1,3}){3}$')
+    _raw_host = target.replace("http://","").replace("https://","").split("/")[0].split(":")[0].strip()
+    _target_is_ip = bool(_IP_PATTERN.match(_raw_host))
+
     # ── Parallel execution ────────────────────────────────────────────
-    # URLhaus (query_url_host) runs alongside all other network engines.
-    # If URLHAUS_API_KEY is missing, engine degrades gracefully and skips.
     results = run_engines_parallel(
         target,
         vt_key        = vt_key,
@@ -112,17 +117,34 @@ def run(
     prog.progress(80, "Engines complete — computing score…")
 
     # ── AI Domain Legitimacy Assessment ──────────────────────────────
-    legitimacy_res = assess_domain_legitimacy(
-        domain           = target,
-        vt_malicious     = getattr(rep_res, "vt_malicious", 0),
-        vt_total         = getattr(rep_res, "vt_total_engines", 0),
-        vt_relations_mal = getattr(rep_res, "vt_malicious_files_related", 0),
-        abuse_confidence = getattr(rep_res, "abuse_confidence", 0),
-        domain_age_days  = getattr(w_res,   "domain_age_days", None),
-        popularity_rank  = getattr(rep_res, "vt_popularity_rank", None),
-        vt_categories    = getattr(rep_res, "vt_categories", []),
-        model            = ollama_model,
-    )
+    # FIX v7: Skip for IPs — legitimacy assessment is for domains only.
+    # Also pass URLhaus + OTX + SSL signals to prevent false "legitimate" verdicts.
+    _uh_score   = getattr(urlhaus_res, "score_contribution", 0) if urlhaus_res else 0
+    _uh_flags   = getattr(urlhaus_res, "flags", []) if urlhaus_res else []
+    _otx_pulses = getattr(otx_res, "pulse_count", 0) if otx_res else 0
+    _ssl_score  = getattr(ssl_res,  "score", 0)
+    _pre_score  = getattr(rep_res, "score", 0) + _uh_score
+
+    if _target_is_ip:
+        from backend.ai_analyzer import DomainLegitimacyResult
+        legitimacy_res = DomainLegitimacyResult()  # ran=False → no banner shown
+    else:
+        legitimacy_res = assess_domain_legitimacy(
+            domain           = target,
+            vt_malicious     = getattr(rep_res, "vt_malicious", 0),
+            vt_total         = getattr(rep_res, "vt_total_engines", 0),
+            vt_relations_mal = getattr(rep_res, "vt_malicious_files_related", 0),
+            abuse_confidence = getattr(rep_res, "abuse_confidence", 0),
+            domain_age_days  = getattr(w_res,   "domain_age_days", None),
+            popularity_rank  = getattr(rep_res, "vt_popularity_rank", None),
+            vt_categories    = getattr(rep_res, "vt_categories", []),
+            model            = ollama_model,
+            urlhaus_score    = _uh_score,
+            urlhaus_flags    = _uh_flags,
+            otx_pulses       = _otx_pulses,
+            ssl_score        = _ssl_score,
+            final_score      = _pre_score,
+        )
 
     final_score, sig, extra_flags = compute_final_score(
         target, h_res, w_res, ai_res, rep_res, dec_res, sb_res, ssl_res, pdns_res,
@@ -159,6 +181,21 @@ def run(
                 f"🛸 OTX score contribution: +{otx_res.score_contribution} pts "
                 f"({otx_res.pulse_count} pulses, VT={getattr(rep_res, 'vt_malicious', 0)} malicious)"
             )
+
+    # ── Score floor for IP targets ────────────────────────────────────
+    # FIX v7: when an IP is analysed via URL/Domain tab, compute_final_score
+    # uses domain-scoring logic which can underweight AbuseIPDB.
+    # Apply same floor rules as ip_intel._compute_score:
+    #   AbuseIPDB ≥ 45% → minimum MEDIUM (40)
+    #   AbuseIPDB ≥ 70% → minimum HIGH  (65)
+    if _target_is_ip:
+        _abuse = getattr(rep_res, "abuse_confidence", 0)
+        if _abuse >= 70 and final_score < 65:
+            extra_flags.append(f"⚠️ IP Score Floor: AbuseIPDB {_abuse}% → minimum HIGH (65)")
+            final_score = 65
+        elif _abuse >= 45 and final_score < 40:
+            extra_flags.append(f"⚠️ IP Score Floor: AbuseIPDB {_abuse}% → minimum MEDIUM (40)")
+            final_score = 40
 
     prog.progress(92, "Computing verdict…")
     all_iocs = _collect_iocs(rep_res, dec_res, sb_res, ssl_res, pdns_res, urlhaus_res, otx_res)

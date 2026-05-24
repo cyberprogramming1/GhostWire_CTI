@@ -1,19 +1,3 @@
-"""
-backend/async_runner.py
-------------------------
-GhostWire CTI v6 — Parallel engine runner.
-
-v6.1 additions:
-  - urlhaus_engine integrated for URL, Hash, and IP pipelines
-  - URLhausResult added to run_engines_parallel return dict (key: "urlhaus")
-  - run_hash_engines_parallel: parallel runner for pipeline_hash
-  - run_ip_engines_parallel  : parallel runner for pipeline_ip
-
-Graceful degradation:
-  URLHAUS_API_KEY is optional. If absent or if abuse.ch is unreachable,
-  the urlhaus engine returns an empty URLhausResult and logs a warning.
-  The pipeline continues with all other engines — analysis never stops.
-"""
 
 from __future__ import annotations
 
@@ -63,8 +47,17 @@ def run_engines_parallel(
     from backend.passive_dns     import analyze_passive_dns,   PassiveDNSResult
     from backend.external_intel  import analyze_shodan,        ShodanResult
     from backend.external_intel  import analyze_greynoise,     GreyNoiseResult
-    from backend.urlhaus_engine  import query_url_host,        URLhausResult  # NEW
+    from backend.urlhaus_engine  import query_url_host, query_host, URLhausResult  # NEW
     from backend.otx_engine       import query_domain, query_url, OTXResult      # v7 OTX
+
+    # ── Auto-detect IP address from target ────────────────────────────
+    # FIX v7: if caller didn't pass ip_address but target IS an IP,
+    # detect it here so GreyNoise runs and URLhaus uses query_host (not query_url_host).
+    import re as _re
+    _IP_RE = _re.compile(r'^\d{1,3}(\.\d{1,3}){3}$|^[0-9a-fA-F:]+:[0-9a-fA-F:]+$')
+    _raw_host = target.replace("http://","").replace("https://","").split("/")[0].split(":")[0].strip()
+    if ip_address is None and _IP_RE.match(_raw_host):
+        ip_address = _raw_host
 
     # ── Typed error stub factories ────────────────────────────────────
     def _err_ai(msg: str) -> AIAnalysisResult:
@@ -147,17 +140,38 @@ def run_engines_parallel(
     else:
         logger.debug("GreyNoise disabled or no IP — skipping")
 
-    # NEW: URLhaus — URL + host parallel lookup
+    # NEW: URLhaus — use query_host for IPs, query_url_host for URLs/domains
+    # FIX v7: query_url_host sends to /url/ first (gets invalid_url for IPs),
+    # then /host/. query_host goes directly to /host/ — more reliable for IPs.
     if run_urlhaus:
-        tasks.append(("urlhaus", query_url_host, (target,), {}, _err_urlhaus))
+        if ip_address:
+            tasks.append(("urlhaus", query_host, (ip_address,), {}, _err_urlhaus))
+        else:
+            tasks.append(("urlhaus", query_url_host, (target,), {}, _err_urlhaus))
     else:
         logger.debug("URLhaus disabled — skipping (set run_urlhaus=True to enable)")
 
-    # v7: OTX — domain + URL parallel lookup
-    # vt_malicious passed at task-level; we use 0 here and re-score in pipeline
-    # after reputation engine completes. OTX is context engine — gracefully skipped if no key.
+    # v7: OTX — route to correct indicator type based on target
+    # FIX v7: Previously always called query_domain(target) regardless of input.
+    # IP input → OTX domain lookup → no results (wrong indicator type).
+    # Now: IP → query_ip, full URL → query_url + query_ip/domain, domain → query_domain
     if run_otx:
-        tasks.append(("otx", query_domain, (target,), {}, _err_otx))
+        from backend.otx_engine import query_ip as _otx_qi
+
+        _has_path = "/" in target.replace("http://","").replace("https://","").lstrip("/").split("?")[0]
+
+        if ip_address:
+            # Target is an IP (bare or in URL like http://1.2.3.4/path)
+            tasks.append(("otx", _otx_qi, (ip_address,), {}, _err_otx))
+            # If there's also a full URL path, queue a secondary URL lookup
+            # Result merged in pipeline after render
+            if _has_path:
+                tasks.append(("otx_url", query_url, (target,), {}, _err_otx))
+        else:
+            # Domain — also do URL lookup if path present
+            tasks.append(("otx", query_domain, (target,), {}, _err_otx))
+            if _has_path:
+                tasks.append(("otx_url", query_url, (target,), {}, _err_otx))
     else:
         logger.debug("OTX disabled — skipping")
 
@@ -187,8 +201,9 @@ def run_engines_parallel(
                         "pdns":       _err_pdns,
                         "shodan":     _err_shodan,
                         "greynoise":  _err_greynoise,
-                        "urlhaus":    _err_urlhaus,   # NEW
-                        "otx":        _err_otx,       # v7
+                        "urlhaus":    _err_urlhaus,
+                        "otx":        _err_otx,
+                        "otx_url":    _err_otx,   # FIX v7
                     }
                     ef = err_map.get(name, lambda m: None)
                     timeout_msg = f"{name} timed out after 90s"
@@ -196,6 +211,35 @@ def run_engines_parallel(
                     network_results[name] = ef(timeout_msg)
 
     # ── Collect all results ────────────────────────────────────────────
+    # FIX v7: merge otx_url into otx main result when URL lookup finds more
+    _otx_main = network_results.get("otx",     _err_otx("OTX disabled"))
+    _otx_url  = network_results.get("otx_url")
+    if _otx_url and getattr(_otx_url, "available", False) and getattr(_otx_url, "pulse_count", 0) > 0:
+        _otx_main.available   = True
+        _otx_main.pulse_count = max(getattr(_otx_main, "pulse_count", 0), _otx_url.pulse_count)
+        for _p in getattr(_otx_url, "pulse_names", []):
+            if _p not in getattr(_otx_main, "pulse_names", []):
+                _otx_main.pulse_names.append(_p)
+        for _f in getattr(_otx_url, "flags", []):
+            if _f not in getattr(_otx_main, "flags", []):
+                _otx_main.flags.append(_f)
+        for _i in getattr(_otx_url, "iocs", []):
+            if _i not in getattr(_otx_main, "iocs", []):
+                _otx_main.iocs.append(_i)
+        for _a in getattr(_otx_url, "attack_ids", []):
+            if _a not in getattr(_otx_main, "attack_ids", []):
+                _otx_main.attack_ids.append(_a)
+        for _t in getattr(_otx_url, "attack_tactics", []):
+            if _t not in getattr(_otx_main, "attack_tactics", []):
+                _otx_main.attack_tactics.append(_t)
+        for _adv in getattr(_otx_url, "adversaries", []):
+            if _adv not in getattr(_otx_main, "adversaries", []):
+                _otx_main.adversaries.append(_adv)
+        _otx_main.score_contribution = max(
+            getattr(_otx_main, "score_contribution", 0),
+            getattr(_otx_url,  "score_contribution", 0),
+        )
+
     return {
         "heuristics":  h_res,
         "whois":       w_res,
@@ -207,8 +251,8 @@ def run_engines_parallel(
         "pdns":        network_results.get("pdns",       _err_pdns("Passive DNS disabled")),
         "shodan":      network_results.get("shodan",     _err_shodan("Shodan disabled")),
         "greynoise":   network_results.get("greynoise",  _err_greynoise("GreyNoise disabled")),
-        "urlhaus":     network_results.get("urlhaus",    _err_urlhaus("URLhaus disabled")),  # NEW
-        "otx":         network_results.get("otx",       _err_otx("OTX disabled")),         # v7
+        "urlhaus":     network_results.get("urlhaus",    _err_urlhaus("URLhaus disabled")),
+        "otx":         _otx_main,
     }
 
 

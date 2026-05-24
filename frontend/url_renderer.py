@@ -52,7 +52,16 @@ def render_url_results(
         )
 
     # ── AI Legitimacy Banner ──────────────────────────────────────────
-    if legitimacy is not None and legitimacy.ran and legitimacy.is_legitimate:
+    # FIX v7: Only show GREEN legitimacy banner if:
+    #   1. AI ran and declared legitimate
+    #   2. No URLhaus malware IOCs in the IOC list
+    #   3. No OTX threat pulse IOCs
+    # This prevents the green banner appearing alongside URLHAUS_OFFLINE/ONLINE IOCs.
+    _has_malware_iocs = any(
+        ioc.startswith(("URLHAUS_", "OTX_PULSE", "ABUSIVE_IP"))
+        for ioc in (all_iocs or [])
+    )
+    if legitimacy is not None and legitimacy.ran and legitimacy.is_legitimate and not _has_malware_iocs:
         import html as _html
         org      = _html.escape(legitimacy.organization or "a legitimate organization")
         reason   = _html.escape(legitimacy.reasoning or "")
@@ -330,8 +339,8 @@ def render_url_results(
             target_url=target,
             threat_level=verdict.threat_level,
             score=verdict.score,
-            iocs=verdict.iocs,
-            flags=verdict.flags,
+            iocs=all_iocs,
+            flags=extra_flags,
             malware_family=_malware_family,
             threat_actors=_threat_actors,
             ip_address=_ip_address,

@@ -2,17 +2,6 @@
 frontend/otx_panel.py
 ----------------------
 GhostWire CTI v7 — AlienVault OTX UI Panel Renderer.
-
-Displays:
-  - Pulse count badge (how many threat intel reports)
-  - MITRE ATT&CK technique pills
-  - Threat actor / adversary attribution
-  - Top pulse names (campaign context)
-  - Targeted countries / industries
-  - Scoring flags
-
-Design: matches Space Mono dark theme of all other panels.
-Mode-aware: same panel for url / hash / ip pipelines.
 """
 
 from __future__ import annotations

@@ -107,23 +107,23 @@ def _classify_score(score: int) -> tuple[str, str, str]:
 def _build_styles() -> dict:
     return {
         "title": ParagraphStyle(
-            "title", fontName="Helvetica-Bold", fontSize=22,
+            "title", fontName="Courier-Bold", fontSize=20,
             textColor=C_CYAN, alignment=TA_CENTER, spaceAfter=4,
         ),
         "subtitle": ParagraphStyle(
-            "subtitle", fontName="Helvetica", fontSize=10,
-            textColor=C_MUTED, alignment=TA_CENTER, spaceAfter=2,
+            "subtitle", fontName="Courier", fontSize=9,
+            textColor=HexColor("#2a6a5a"), alignment=TA_CENTER, spaceAfter=2,
         ),
         "h1": ParagraphStyle(
-            "h1", fontName="Helvetica-Bold", fontSize=13,
+            "h1", fontName="Courier-Bold", fontSize=12,
             textColor=C_CYAN, spaceBefore=12, spaceAfter=5,
         ),
         "h2": ParagraphStyle(
-            "h2", fontName="Helvetica-Bold", fontSize=10,
+            "h2", fontName="Courier-Bold", fontSize=9.5,
             textColor=C_GREEN, spaceBefore=8, spaceAfter=3,
         ),
         "body": ParagraphStyle(
-            "body", fontName="Helvetica", fontSize=8.5,
+            "body", fontName="Courier", fontSize=8,
             textColor=C_TEXT, leading=13, spaceAfter=3,
         ),
         "mono": ParagraphStyle(
@@ -132,28 +132,28 @@ def _build_styles() -> dict:
         ),
         "flag": ParagraphStyle(
             "flag", fontName="Courier", fontSize=7.5,
-            textColor=C_TEXT, leading=12, leftIndent=8, spaceAfter=1,
+            textColor=HexColor("#8aaac8"), leading=12, leftIndent=8, spaceAfter=1,
         ),
         "ioc": ParagraphStyle(
             "ioc", fontName="Courier-Bold", fontSize=7.5,
             textColor=C_RED, leading=11, spaceAfter=1,
         ),
         "caption": ParagraphStyle(
-            "caption", fontName="Helvetica-Oblique", fontSize=7,
-            textColor=C_MUTED, alignment=TA_CENTER,
+            "caption", fontName="Courier", fontSize=6.5,
+            textColor=HexColor("#2a5a4a"), alignment=TA_CENTER,
         ),
         "warning": ParagraphStyle(
             "warning", fontName="Courier-Bold", fontSize=8,
-            textColor=C_RED, backColor=HexColor("#200010"),
+            textColor=C_RED, backColor=HexColor("#1a0005"),
             borderPad=4, spaceAfter=3,
         ),
         "mit_step": ParagraphStyle(
-            "mit_step", fontName="Helvetica", fontSize=8.5,
+            "mit_step", fontName="Courier", fontSize=8,
             textColor=C_TEXT, leading=13, leftIndent=10, spaceAfter=2,
         ),
         "action": ParagraphStyle(
-            "action", fontName="Helvetica", fontSize=8.5,
-            textColor=C_TEXT, leading=13, leftIndent=12, spaceAfter=2,
+            "action", fontName="Courier", fontSize=8,
+            textColor=HexColor("#8aaac8"), leading=13, leftIndent=12, spaceAfter=2,
         ),
     }
 
@@ -164,31 +164,102 @@ def _on_page(canvas, doc, target: str, timestamp: str, pipeline: str = "URL") ->
     W, H = A4
     canvas.saveState()
 
-    # Header bar
-    canvas.setFillColor(C_SURFACE)
-    canvas.rect(0, H - 22 * mm, W, 22 * mm, fill=1, stroke=0)
+    # ── Full dark background ─────────────────────────────────────────
+    canvas.setFillColor(C_BG)
+    canvas.rect(0, 0, W, H, fill=1, stroke=0)
+
+    # ── Scan-line overlay effect (subtle horizontal lines) ───────────
+    canvas.setStrokeColor(HexColor("#0d1525"))
+    canvas.setLineWidth(0.3)
+    for y in range(0, int(H), 4):
+        canvas.line(0, y, W, y)
+
+    # ── Header bar ───────────────────────────────────────────────────
+    canvas.setFillColor(HexColor("#0a1828"))
+    canvas.rect(0, H - 20*mm, W, 20*mm, fill=1, stroke=0)
+
+    # Cyan accent line top
+    canvas.setStrokeColor(C_CYAN)
+    canvas.setLineWidth(1.5)
+    canvas.line(0, H - 20*mm, W, H - 20*mm)
+
+    # Left side: GhostWire branding
     canvas.setFillColor(C_CYAN)
-    canvas.setFont("Helvetica-Bold", 8)
-    canvas.drawString(15 * mm, H - 12 * mm,
-                      "GhostWire CTI v6  |  CYBER THREAT INTELLIGENCE REPORT")
+    canvas.setFont("Courier-Bold", 9)
+    canvas.drawString(12*mm, H - 10*mm, "GHOSTWIRE CTI v6")
     canvas.setFillColor(C_MUTED)
-    canvas.setFont("Helvetica", 7)
-    canvas.drawRightString(W - 15 * mm, H - 12 * mm,
-                           f"TLP:AMBER  |  {_safe_str(timestamp, 40)}")
+    canvas.setFont("Courier", 7)
+    canvas.drawString(12*mm, H - 15*mm, "CYBER THREAT INTELLIGENCE PLATFORM")
 
-    # Footer bar
-    canvas.setFillColor(C_SURFACE)
-    canvas.rect(0, 0, W, 12 * mm, fill=1, stroke=0)
+    # Pipeline badge
+    pip_color = {
+        "URL": C_CYAN, "IP": HexColor("#c47aff"),
+        "FILE": HexColor("#ff9a3c"), "HASH": HexColor("#ff9a3c"),
+        "EMAIL": HexColor("#ffd060"), "SANDBOX": HexColor("#ff2d55"),
+    }.get(pipeline.upper(), C_CYAN)
+
+    badge_x = W - 80*mm
+    canvas.setFillColor(HexColor("#0d1525"))
+    canvas.roundRect(badge_x, H - 16*mm, 35*mm, 8*mm, 2, fill=1, stroke=0)
+    canvas.setStrokeColor(pip_color)
+    canvas.setLineWidth(0.5)
+    canvas.roundRect(badge_x, H - 16*mm, 35*mm, 8*mm, 2, fill=0, stroke=1)
+    canvas.setFillColor(pip_color)
+    canvas.setFont("Courier-Bold", 7)
+    canvas.drawCentredString(badge_x + 17.5*mm, H - 11*mm, f"PIPELINE: {pipeline.upper()}")
+
+    # TLP badge
+    tlp_x = W - 42*mm
+    canvas.setFillColor(HexColor("#1a0a00"))
+    canvas.roundRect(tlp_x, H - 16*mm, 28*mm, 8*mm, 2, fill=1, stroke=0)
+    canvas.setStrokeColor(HexColor("#ff9a3c"))
+    canvas.setLineWidth(0.5)
+    canvas.roundRect(tlp_x, H - 16*mm, 28*mm, 8*mm, 2, fill=0, stroke=1)
+    canvas.setFillColor(HexColor("#ff9a3c"))
+    canvas.setFont("Courier-Bold", 7)
+    canvas.drawCentredString(tlp_x + 14*mm, H - 11*mm, "TLP:AMBER")
+
+    # Timestamp
     canvas.setFillColor(C_MUTED)
-    canvas.setFont("Helvetica", 7)
-    canvas.drawString(15 * mm, 5 * mm, f"Target: {_safe_str(target, 60)}")
-    canvas.drawRightString(W - 15 * mm, 5 * mm,
-                           f"Page {doc.page}  |  Pipeline: {_safe_str(pipeline, 30)}")
+    canvas.setFont("Courier", 6.5)
+    canvas.drawRightString(W - 12*mm, H - 6*mm, _safe_str(timestamp, 40))
 
-    # Accent line
+    # ── Footer bar ───────────────────────────────────────────────────
+    canvas.setFillColor(HexColor("#0a1828"))
+    canvas.rect(0, 0, W, 13*mm, fill=1, stroke=0)
+
+    # Cyan accent top of footer
     canvas.setStrokeColor(C_CYAN)
     canvas.setLineWidth(0.5)
-    canvas.line(0, H - 22 * mm, W, H - 22 * mm)
+    canvas.line(0, 13*mm, W, 13*mm)
+
+    # Vertical separator
+    canvas.setStrokeColor(HexColor("#1a2a3a"))
+    canvas.setLineWidth(0.5)
+    canvas.line(W/2, 2*mm, W/2, 11*mm)
+
+    canvas.setFillColor(HexColor("#2a6a5a"))
+    canvas.setFont("Courier", 6.5)
+    canvas.drawString(12*mm, 8*mm, "TARGET:")
+    canvas.setFillColor(C_TEXT)
+    canvas.setFont("Courier-Bold", 6.5)
+    canvas.drawString(30*mm, 8*mm, _safe_str(target, 55))
+
+    canvas.setFillColor(HexColor("#2a6a5a"))
+    canvas.setFont("Courier", 6.5)
+    canvas.drawString(12*mm, 3.5*mm, "GENERATED BY GhostWire CTI  |  CONFIDENTIAL")
+
+    canvas.setFillColor(C_MUTED)
+    canvas.setFont("Courier", 6.5)
+    canvas.drawRightString(W - 12*mm, 8*mm, f"PAGE {doc.page}")
+    canvas.setFillColor(HexColor("#2a5a7a"))
+    canvas.setFont("Courier", 6)
+    canvas.drawRightString(W - 12*mm, 3.5*mm, "ghostwire-cti-v6 | abuse.ch | MITRE ATT&CK")
+
+    # ── Left accent stripe ────────────────────────────────────────────
+    canvas.setFillColor(C_CYAN)
+    canvas.rect(0, 13*mm, 1.5, H - 33*mm, fill=1, stroke=0)
+
     canvas.restoreState()
 
 
@@ -196,18 +267,24 @@ def _on_page(canvas, doc, target: str, timestamp: str, pipeline: str = "URL") ->
 
 def _section_bar(story: list, styles: dict, title: str) -> None:
     story.append(Spacer(1, 5 * mm))
-    # Full-width colored section header
-    sec_data = [[Paragraph(_safe_str(title, 80), ParagraphStyle(
-        "sec", fontName="Courier-Bold", fontSize=8.5,
-        textColor=C_BG,
-    ))]]
-    sec_t = Table(sec_data, colWidths=[165 * mm], rowHeights=[8 * mm])
+    # Hacker-style: left-glow border + dark surface + cyan monospace text
+    sec_data = [[Paragraph(
+        f'<font color="#00ffb4">▸</font> <font color="#00ffb4">{_safe_str(title, 80).upper()}</font>',
+        ParagraphStyle(
+            "sec", fontName="Courier-Bold", fontSize=8.5,
+            textColor=C_CYAN, leftIndent=4,
+        ),
+    )]]
+    sec_t = Table(sec_data, colWidths=[165 * mm], rowHeights=[9 * mm])
     sec_t.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, -1), C_CYAN),
+        ("BACKGROUND",    (0, 0), (-1, -1), HexColor("#060f1a")),
         ("TOPPADDING",    (0, 0), (-1, -1), 2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+        ("LINEAFTER",     (0, 0), (0, -1), 0, C_BG),
+        ("LINEBEFORE",    (0, 0), (0, -1), 3, C_CYAN),
+        ("BOX",           (0, 0), (-1, -1), 0.3, HexColor("#0a2030")),
     ]))
     story.append(sec_t)
     story.append(Spacer(1, 2 * mm))
@@ -245,22 +322,24 @@ def _score_bar_table(label: str, score: int, max_s: int, color: HexColor) -> Tab
 
 def _kv_table(rows: list[tuple[str, str]],
               col_widths: tuple[int, int] = (50, 110)) -> Table:
-    """Two-column key-value table with alternating row backgrounds."""
+    """Two-column key-value table — terminal / hacker style."""
     data = [[_safe_str(k, 40), _safe_str(v, 150)] for k, v in rows]
     t = Table(data,
               colWidths=[col_widths[0] * mm, col_widths[1] * mm],
-              rowHeights=6 * mm)
+              rowHeights=6.5 * mm)
     t.setStyle(TableStyle([
         ("FONT",          (0, 0), (0, -1), "Courier-Bold", 7),
         ("FONT",          (1, 0), (1, -1), "Courier", 7),
-        ("TEXTCOLOR",     (0, 0), (0, -1), C_MUTED),
+        ("TEXTCOLOR",     (0, 0), (0, -1), HexColor("#2a7a6a")),   # muted green for keys
         ("TEXTCOLOR",     (1, 0), (1, -1), C_TEXT),
-        ("ROWBACKGROUNDS",(0, 0), (-1, -1), [C_SURFACE, C_BG]),
-        ("BOX",           (0, 0), (-1, -1), 0.3, C_BORDER),
-        ("INNERGRID",     (0, 0), (-1, -1), 0.2, C_BORDER),
+        ("ROWBACKGROUNDS",(0, 0), (-1, -1), [HexColor("#0a1520"), HexColor("#080e18")]),
+        ("BOX",           (0, 0), (-1, -1), 0.3, HexColor("#0a2030")),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.2, HexColor("#0d1a28")),
+        ("LINEBEFORE",    (0, 0), (0, -1), 2, HexColor("#0a3040")),  # left accent
         ("TOPPADDING",    (0, 0), (-1, -1), 2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+        ("LEFTPADDING",   (0, 0), (0, -1), 6),
+        ("LEFTPADDING",   (1, 0), (1, -1), 4),
     ]))
     return t
 
@@ -447,21 +526,52 @@ def _cover_page(
     one_line: str = "",
     extra_meta: Optional[list[tuple[str, str]]] = None,
 ) -> None:
-    """Shared cover page builder used by all 5 pipelines."""
+    """Shared cover page builder — hacker terminal aesthetic."""
     level_color = LEVEL_COLORS.get(threat_level, C_CYAN)
     level_bg    = LEVEL_BG.get(threat_level, C_SURFACE)
 
-    story.append(Spacer(1, 8 * mm))
+    story.append(Spacer(1, 6 * mm))
 
-    # ── Top classification stripe ──────────────────────────────────────
+    # ── ASCII-art style logo block ─────────────────────────────────────
+    logo_lines = [
+        " ██████╗ ██╗  ██╗ ██████╗ ███████╗████████╗██╗    ██╗██╗██████╗ ███████╗",
+        "██╔════╝ ██║  ██║██╔═══██╗██╔════╝╚══██╔══╝██║    ██║██║██╔══██╗██╔════╝",
+        "██║  ███╗███████║██║   ██║███████╗   ██║   ██║ █╗ ██║██║██████╔╝█████╗  ",
+        "██║   ██║██╔══██║██║   ██║╚════██║   ██║   ██║███╗██║██║██╔══██╗██╔══╝  ",
+        "╚██████╔╝██║  ██║╚██████╔╝███████║   ██║   ╚███╔███╔╝██║██║  ██║███████╗",
+        " ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝    ╚══╝╚══╝ ╚═╝╚═╝  ╚═╝╚══════╝",
+        "                  C  T  I     P  L  A  T  F  O  R  M     v  6             ",
+    ]
+    logo_data = [
+        [Paragraph(line, ParagraphStyle(
+            "logo", fontName="Courier", fontSize=4.8,
+            textColor=HexColor("#1a4a3a"), alignment=TA_CENTER,
+        ))]
+        for line in logo_lines
+    ]
+    logo_t = Table(logo_data, colWidths=[165 * mm])
+    logo_t.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), HexColor("#040810")),
+        ("TOPPADDING",    (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
+        ("LINEAFTER",     (0, 0), (0, -1), 0, C_BG),
+        ("LINEBEFORE",    (0, 0), (0, -1), 1, HexColor("#0a3040")),
+        ("LINEAFTER",     (0, 0), (-1, -1), 1, HexColor("#0a3040")),
+    ]))
+    story.append(logo_t)
+    story.append(Spacer(1, 3 * mm))
+
+    # ── Classification stripe ──────────────────────────────────────────
     stripe_data = [[Paragraph(
-        f"TLP:AMBER  ·  CONFIDENTIAL  ·  GhostWire CTI v6  ·  {_safe_str(pipeline_label, 50)}",
+        f"[ TLP:AMBER ]  ·  CONFIDENTIAL  ·  {_safe_str(pipeline_label, 45).upper()}  ·  GHOSTWIRE CTI v6",
         ParagraphStyle("stripe", fontName="Courier-Bold", fontSize=7,
-                       textColor=C_BG, alignment=TA_CENTER),
+                       textColor=HexColor("#040810"), alignment=TA_CENTER),
     )]]
     stripe_t = Table(stripe_data, colWidths=[165 * mm], rowHeights=[7 * mm])
     stripe_t.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, -1), C_CYAN),
+        ("BACKGROUND",    (0, 0), (-1, -1), HexColor("#00c8aa")),
         ("TOPPADDING",    (0, 0), (-1, -1), 2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ("LEFTPADDING",   (0, 0), (-1, -1), 6),
@@ -469,24 +579,20 @@ def _cover_page(
     story.append(stripe_t)
     story.append(Spacer(1, 5 * mm))
 
-    # ── Title ─────────────────────────────────────────────────────────
-    story.append(Paragraph("GhostWire CTI v6", styles["title"]))
-    story.append(Paragraph("Cyber Threat Intelligence Report", styles["subtitle"]))
-    story.append(Spacer(1, 6 * mm))
-
-    # ── Target box ────────────────────────────────────────────────────
+    # ── Target box — terminal-style ───────────────────────────────────
     td = [
-        [Paragraph("ANALYSIS TARGET", ParagraphStyle(
+        [Paragraph("[ ANALYSIS TARGET ]", ParagraphStyle(
             "tl", fontName="Courier-Bold", fontSize=7,
-            textColor=C_MUTED, alignment=TA_CENTER))],
+            textColor=HexColor("#2a6a5a"), alignment=TA_CENTER))],
         [Paragraph(_safe_str(target, 90), ParagraphStyle(
-            "tv", fontName="Courier-Bold", fontSize=9,
+            "tv", fontName="Courier-Bold", fontSize=10,
             textColor=C_CYAN, alignment=TA_CENTER))],
     ]
-    target_t = Table(td, colWidths=[165 * mm], rowHeights=[6 * mm, 9 * mm])
+    target_t = Table(td, colWidths=[165 * mm], rowHeights=[6 * mm, 10 * mm])
     target_t.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, -1), C_SURFACE),
-        ("BOX",           (0, 0), (-1, -1), 1.0, C_CYAN),
+        ("BACKGROUND",    (0, 0), (-1, -1), HexColor("#060f1a")),
+        ("BOX",           (0, 0), (-1, -1), 1.5, C_CYAN),
+        ("LINEBEFORE",    (0, 0), (0, -1), 4, C_CYAN),
         ("TOPPADDING",    (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
@@ -494,20 +600,21 @@ def _cover_page(
     story.append(target_t)
     story.append(Spacer(1, 5 * mm))
 
-    # ── Threat Level | Risk Score | Confidence ────────────────────────
+    # ── Threat metrics row ────────────────────────────────────────────
     def _metric_cell(label: str, value: str, color: HexColor, bg: HexColor) -> Table:
         d = [
-            [Paragraph(label, ParagraphStyle(
+            [Paragraph(f"[ {label} ]", ParagraphStyle(
                 "ml", fontName="Courier-Bold", fontSize=6.5,
-                textColor=C_MUTED, alignment=TA_CENTER))],
+                textColor=HexColor("#2a5a4a"), alignment=TA_CENTER))],
             [Paragraph(value, ParagraphStyle(
-                "mv", fontName="Helvetica-Bold", fontSize=20,
+                "mv", fontName="Courier-Bold", fontSize=18,
                 textColor=color, alignment=TA_CENTER))],
         ]
         t = Table(d, colWidths=[51 * mm], rowHeights=[7 * mm, 16 * mm])
         t.setStyle(TableStyle([
             ("BACKGROUND",    (0, 0), (-1, -1), bg),
             ("BOX",           (0, 0), (-1, -1), 1.5, color),
+            ("LINEBEFORE",    (0, 0), (0, -1), 3, color),
             ("TOPPADDING",    (0, 0), (-1, -1), 3),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
@@ -516,11 +623,11 @@ def _cover_page(
         return t
 
     metrics_row = [[
-        _metric_cell("THREAT LEVEL",  _safe_str(threat_level, 10),    level_color, level_bg),
+        _metric_cell("THREAT LEVEL",  _safe_str(threat_level, 10), level_color, level_bg),
         Spacer(3 * mm, 1),
-        _metric_cell("RISK SCORE",    f"{_clamp(score)}/100",          level_color, level_bg),
+        _metric_cell("RISK SCORE",    f"{_clamp(score)}/100",       level_color, level_bg),
         Spacer(3 * mm, 1),
-        _metric_cell("CONFIDENCE",    f"{_clamp(confidence)}%",        C_CYAN,      C_SURFACE),
+        _metric_cell("CONFIDENCE",    f"{_clamp(confidence)}%",     C_CYAN,      C_SURFACE),
     ]]
     metrics_t = Table(metrics_row, colWidths=[51*mm, 3*mm, 51*mm, 3*mm, 51*mm],
                       rowHeights=[23 * mm])
@@ -535,44 +642,68 @@ def _cover_page(
 
     # ── One-line verdict ──────────────────────────────────────────────
     if one_line:
-        story.append(Paragraph(
-            _safe_str(one_line, 180),
-            ParagraphStyle("verdict_line", fontName="Helvetica-Bold", fontSize=9,
-                           textColor=level_color, alignment=TA_CENTER,
-                           spaceBefore=2, spaceAfter=4),
-        ))
+        verdict_box_data = [[Paragraph(
+            f"▸ {_safe_str(one_line, 180)}",
+            ParagraphStyle("verdict_line", fontName="Courier-Bold", fontSize=9,
+                           textColor=level_color, alignment=TA_LEFT,
+                           spaceBefore=2, spaceAfter=2),
+        )]]
+        verdict_box_t = Table(verdict_box_data, colWidths=[165 * mm])
+        verdict_box_t.setStyle(TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, -1), level_bg),
+            ("BOX",           (0, 0), (-1, -1), 0.5, level_color),
+            ("LINEBEFORE",    (0, 0), (0, -1), 4, level_color),
+            ("TOPPADDING",    (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+        ]))
+        story.append(verdict_box_t)
+        story.append(Spacer(1, 4 * mm))
 
     # ── Metadata grid ─────────────────────────────────────────────────
     meta = [
-        ("Timestamp (UTC)", _safe_str(timestamp, 40)),
-        ("Pipeline",        _safe_str(pipeline_label, 60)),
-        ("IOCs Identified", str(ioc_count)),
-        ("Analysis Duration", f"{duration:.1f}s" if duration else "N/A"),
+        ("TIMESTAMP UTC",      _safe_str(timestamp, 40)),
+        ("PIPELINE",           _safe_str(pipeline_label, 60)),
+        ("IOCs IDENTIFIED",    str(ioc_count)),
+        ("ANALYSIS DURATION",  f"{duration:.1f}s" if duration else "N/A"),
     ]
     if extra_meta:
         for k, v in extra_meta:
-            meta.append((_safe_str(k, 30), _safe_str(v, 110)))
+            meta.append((_safe_str(k, 30).upper(), _safe_str(v, 110)))
 
-    story.append(_kv_table(meta))
-    story.append(PageBreak())
+    meta_data = [[_safe_str(k, 35), _safe_str(v, 120)] for k, v in meta]
+    meta_t = Table(meta_data,
+                   colWidths=[50 * mm, 115 * mm],
+                   rowHeights=6.5 * mm)
+    meta_t.setStyle(TableStyle([
+        ("FONT",          (0, 0), (0, -1), "Courier-Bold", 7),
+        ("FONT",          (1, 0), (1, -1), "Courier", 7),
+        ("TEXTCOLOR",     (0, 0), (0, -1), HexColor("#2a7a6a")),
+        ("TEXTCOLOR",     (1, 0), (1, -1), C_TEXT),
+        ("ROWBACKGROUNDS",(0, 0), (-1, -1), [HexColor("#0a1520"), HexColor("#080e18")]),
+        ("BOX",           (0, 0), (-1, -1), 0.3, HexColor("#0a2030")),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.2, HexColor("#0d1a28")),
+        ("LINEBEFORE",    (0, 0), (0, -1), 2, HexColor("#0a3040")),
+        ("TOPPADDING",    (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("LEFTPADDING",   (0, 0), (0, -1), 6),
+        ("LEFTPADDING",   (1, 0), (1, -1), 4),
+    ]))
+    story.append(meta_t)
+    story.append(Spacer(1, 5 * mm))
 
-
-def _disclaimer_footer(story: list, styles: dict, timestamp: str) -> None:
-    story.append(Spacer(1, 8 * mm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=C_BORDER))
-    story.append(Spacer(1, 2 * mm))
-
-    # Bottom classification stripe
+    # ── Disclaimer ────────────────────────────────────────────────────
     disc_data = [[Paragraph(
-        "TLP:AMBER  ·  CONFIDENTIAL  ·  FOR INTERNAL USE ONLY  ·  "
-        "Results must be validated by a qualified security analyst before action. "
-        "AI inference performed locally — no data transmitted to external AI services.",
+        "This report is generated automatically by GhostWire CTI v6. "
+        "Results should be reviewed by a qualified security analyst. "
+        "IOC data sourced from VirusTotal, AbuseIPDB, Shodan, GreyNoise, URLhaus, OTX, Hybrid Analysis.",
         ParagraphStyle("disc", fontName="Courier", fontSize=6.5,
-                       textColor=C_BG, alignment=TA_CENTER),
+                       textColor=HexColor("#2a4a3a"), alignment=TA_CENTER),
     )]]
     disc_t = Table(disc_data, colWidths=[165 * mm])
     disc_t.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, -1), C_MUTED),
+        ("BACKGROUND",    (0, 0), (-1, -1), HexColor("#060f1a")),
+        ("BOX",           (0, 0), (-1, -1), 0.3, HexColor("#0a2030")),
         ("TOPPADDING",    (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LEFTPADDING",   (0, 0), (-1, -1), 6),
@@ -580,7 +711,49 @@ def _disclaimer_footer(story: list, styles: dict, timestamp: str) -> None:
     story.append(disc_t)
     story.append(Spacer(1, 1 * mm))
     story.append(Paragraph(
-        f"Generated: {_safe_str(timestamp, 40)}  |  GhostWire CTI v6",
+        f"Generated: {_safe_str(timestamp, 40)}  |  GhostWire CTI v6  |  stay ghost.",
+        styles["caption"],
+    ))
+
+    story.append(PageBreak())
+
+
+def _disclaimer_footer(story: list, styles: dict, timestamp: str) -> None:
+    story.append(Spacer(1, 8 * mm))
+    # Hacker-style footer separator
+    sep_data = [[Paragraph(
+        "─" * 80,
+        ParagraphStyle("sep", fontName="Courier", fontSize=6,
+                       textColor=HexColor("#0a2030"), alignment=TA_CENTER),
+    )]]
+    sep_t = Table(sep_data, colWidths=[165 * mm])
+    sep_t.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), HexColor("#040810")),
+        ("TOPPADDING",    (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(sep_t)
+    story.append(Spacer(1, 2 * mm))
+
+    disc_data = [[Paragraph(
+        "[ TLP:AMBER ]  CONFIDENTIAL  ·  FOR INTERNAL USE ONLY  ·  "
+        "Results must be validated by a qualified security analyst before action.  "
+        "AI inference performed locally — no data transmitted to external AI services.",
+        ParagraphStyle("disc", fontName="Courier", fontSize=6.5,
+                       textColor=HexColor("#2a4a3a"), alignment=TA_CENTER),
+    )]]
+    disc_t = Table(disc_data, colWidths=[165 * mm])
+    disc_t.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), HexColor("#060f1a")),
+        ("BOX",           (0, 0), (-1, -1), 0.3, HexColor("#0a2030")),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+    ]))
+    story.append(disc_t)
+    story.append(Spacer(1, 1 * mm))
+    story.append(Paragraph(
+        f"Generated: {_safe_str(timestamp, 40)}  |  GhostWire CTI v6  |  stay ghost.",
         styles["caption"],
     ))
 

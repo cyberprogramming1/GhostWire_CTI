@@ -16,7 +16,11 @@ from frontend.other_renderers import render_email_results
 _MAX_IMG_BYTES = 10 * 1024 * 1024
 
 
-def run(*, email_input: str, email_img) -> None:
+def run(*, email_input: str, email_img,
+        ollama_model: str = "phi3:mini",
+        run_ai: bool = True,
+        vt_key: str = "",
+        abuse_key: str = "") -> None:
     # ── Normalize inputs ──────────────────────────────────────────────
     # Strip whitespace — empty text_area returns "" not None in Streamlit
     clean_text = (email_input or "").strip() or None
@@ -50,7 +54,9 @@ def run(*, email_input: str, email_img) -> None:
     prog = st.progress(0, "Analysing email / SMS…")
     prog.progress(50, "Forensic header & content analysis…")
 
-    em_res = analyze_email(text=clean_text, image_bytes=img_bytes)
+    em_res = analyze_email(text=clean_text, image_bytes=img_bytes,
+                           vt_api_key=vt_key, abuse_api_key=abuse_key,
+                           ollama_model=ollama_model, run_ai=run_ai)
 
     prog.progress(100, "Done."); time.sleep(0.3); prog.empty()
     ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")

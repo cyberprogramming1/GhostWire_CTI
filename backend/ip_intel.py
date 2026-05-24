@@ -607,25 +607,90 @@ def _fetch_hackertarget(ip: str, result: IPIntelResult) -> None:
 # ── SOURCE 7: BGPView ASN enrichment ─────────────────────────────────────────
 
 def _fetch_bgpview(ip: str, result: IPIntelResult) -> None:
-    """BGPView.io — prefix, RIR, ASN details (free, no key)."""
-    try:
-        r = requests.get(
-            f"https://api.bgpview.io/ip/{ip}",
-            headers=SAFE_UA, timeout=TIMEOUT_S,
-        )
-        if r.status_code == 200:
-            data   = r.json().get("data", {})
-            prefix = data.get("prefixes", [{}])[0] if data.get("prefixes") else {}
-            if prefix:
-                result.bgp_prefix = prefix.get("prefix")
-                result.bgp_rir    = prefix.get("rir_allocation", {}).get("rir_name")
-                asn_info = prefix.get("asn", {})
-                if asn_info and not result.asn:
-                    result.asn     = f"AS{asn_info.get('asn', '')}"
-                    result.asn_org = asn_info.get("name")
-                result.sources_queried.append("BGPView")
-    except Exception as e:
-        result.errors.append(f"BGPView error: {e}")
+    """
+    ASN / prefix enrichment — tries multiple free sources in order:
+      1. ip-api.com  (no key, high rate limit, includes ASN)
+      2. RDAP (ARIN)  (free, authoritative for ARIN space)
+      3. BGPView.io   (legacy — kept as last resort, may be unreachable)
+
+    Network errors are logged at DEBUG level only — never shown to user
+    as ⚠ errors, because these are optional enrichment sources.
+    """
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+
+    # Already have ASN from a previous source? Only fill in gaps.
+    def _asn_complete() -> bool:
+        return bool(result.asn and result.asn_org)
+
+    # ── Source A: ip-api.com (ASN + org, no key needed) ─────────────
+    if not _asn_complete():
+        try:
+            r = requests.get(
+                f"http://ip-api.com/json/{ip}?fields=as,org,isp,country,regionName,city",
+                headers=SAFE_UA, timeout=6,
+            )
+            if r.status_code == 200:
+                d = r.json()
+                asn_raw = d.get("as", "")   # e.g. "AS13335 Cloudflare, Inc."
+                if asn_raw and not result.asn:
+                    parts = asn_raw.split(" ", 1)
+                    result.asn     = parts[0]                   # "AS13335"
+                    result.asn_org = parts[1] if len(parts) > 1 else ""
+                if d.get("org") and not result.asn_org:
+                    result.asn_org = d["org"]
+                result.sources_queried.append("ip-api.com/ASN")
+        except Exception as exc:
+            _logger.debug("ip-api.com ASN lookup skipped: %s", exc)
+
+    # ── Source B: RDAP ARIN (authoritative, free) ───────────────────
+    if not _asn_complete():
+        try:
+            r = requests.get(
+                f"https://rdap.arin.net/registry/ip/{ip}",
+                headers={**SAFE_UA, "Accept": "application/rdap+json"},
+                timeout=6,
+            )
+            if r.status_code == 200:
+                d = r.json()
+                name = d.get("name") or ""
+                # RDAP doesn't always give ASN directly — get org name
+                entities = d.get("entities", [])
+                for ent in entities:
+                    for role in (ent.get("roles") or []):
+                        if role in ("registrant", "administrative"):
+                            vcard = ent.get("vcardArray", [])
+                            if len(vcard) > 1:
+                                for field in vcard[1]:
+                                    if field[0] == "fn":
+                                        name = field[3]
+                if name and not result.asn_org:
+                    result.asn_org = name
+                    result.sources_queried.append("RDAP/ARIN")
+        except Exception as exc:
+            _logger.debug("RDAP ARIN skipped: %s", exc)
+
+    # ── Source C: BGPView (last resort — may be unreachable) ────────
+    if not _asn_complete():
+        try:
+            r = requests.get(
+                f"https://api.bgpview.io/ip/{ip}",
+                headers=SAFE_UA, timeout=5,
+            )
+            if r.status_code == 200:
+                data   = r.json().get("data", {})
+                prefix = data.get("prefixes", [{}])[0] if data.get("prefixes") else {}
+                if prefix:
+                    result.bgp_prefix = prefix.get("prefix")
+                    result.bgp_rir    = prefix.get("rir_allocation", {}).get("rir_name")
+                    asn_info = prefix.get("asn", {})
+                    if asn_info and not result.asn:
+                        result.asn     = f"AS{asn_info.get('asn', '')}"
+                        result.asn_org = asn_info.get("name")
+                    result.sources_queried.append("BGPView")
+        except Exception as exc:
+            # SILENT — BGPView unreachable is not a user-facing error
+            _logger.debug("BGPView skipped (unreachable or DNS failure): %s", exc)
 
 
 # ── Threat category inference ────────────────────────────────────────────────

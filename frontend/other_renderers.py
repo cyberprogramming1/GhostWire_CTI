@@ -85,6 +85,24 @@ def render_hash_results(h_res, timestamp: str) -> None:
         for e in h_res.errors:
             st.caption(f"⚠ {e}")
 
+    # ── STIX 2.1 / TAXII Export for Hash pipeline ─────────────────────
+    try:
+        from frontend.stix_panel import render_stix_export_panel
+        level, _, _ = _classify(h_res.score)
+        render_stix_export_panel(
+            target_url     = h_res.sha256 or h_res.md5 or "unknown_hash",
+            threat_level   = level,
+            score          = h_res.score,
+            iocs           = h_res.iocs,
+            flags          = h_res.flags,
+            sha256_hash    = h_res.sha256,
+            md5_hash       = h_res.md5,
+            malware_family = h_res.vt_family,
+            verdict_text   = f"File/Hash forensic analysis. Type: {h_res.file_type}. VT: {h_res.vt_malicious}/{h_res.vt_total} detections.",
+        )
+    except Exception as _stix_err:
+        st.caption(f"⚠ STIX export error: {_stix_err}")
+
     footer(timestamp, "FILE/HASH ENGINE")
 
 
@@ -173,7 +191,26 @@ def render_email_results(em_res, timestamp: str) -> None:
                 st.text(em_res.ocr_text[:2500])
 
         for e in em_res.errors:
-            st.caption(f"⚠ {e}")
+            e_str = str(e).lower()
+            # FIX v7: Ollama unavailability is NOT a real error — it's expected
+            # when Ollama is not running locally. Show as info, not red error.
+            if "all ollama models failed" in e_str or "heuristics only" in e_str:
+                st.markdown(
+                    '<div style="font-family:Space Mono,monospace;font-size:0.65rem;'
+                    'color:#4a6a8a;margin-top:0.3rem">'
+                    'ℹ️ AI (Ollama): Not available — heuristic analysis used instead. '
+                    'Start Ollama locally for enhanced AI detection.</div>',
+                    unsafe_allow_html=True,
+                )
+            elif "ollama not installed" in e_str:
+                st.markdown(
+                    '<div style="font-family:Space Mono,monospace;font-size:0.65rem;'
+                    'color:#4a6a8a;margin-top:0.3rem">'
+                    'ℹ️ Ollama library not installed — pip install ollama for AI analysis.</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.caption(f"⚠ {e}")
 
     footer(timestamp, "EMAIL/SMS FORENSICS")
 
@@ -443,5 +480,21 @@ def render_ip_results(ip_res, ip_raw: str, timestamp: str) -> None:
             st.markdown(ioc_chips(ip_res.iocs), unsafe_allow_html=True)
         for e in ip_res.errors:
             st.caption(f"⚠ {e}")
+
+    # ── STIX 2.1 / TAXII Export for IP pipeline ───────────────────────
+    try:
+        from frontend.stix_panel import render_stix_export_panel
+        level, _, _ = _classify(ip_res.score)
+        render_stix_export_panel(
+            target_url    = ip_raw,
+            threat_level  = level,
+            score         = ip_res.score,
+            iocs          = ip_res.iocs,
+            flags         = ip_res.flags,
+            ip_address    = ip_raw,
+            verdict_text  = f"IP Intelligence analysis. Country: {getattr(ip_res, 'country', 'Unknown')}. ASN: {getattr(ip_res, 'asn', 'Unknown')}.",
+        )
+    except Exception as _stix_err:
+        st.caption(f"⚠ STIX export error: {_stix_err}")
 
     footer(timestamp, "IP INTELLIGENCE")

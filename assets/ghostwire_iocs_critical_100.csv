@@ -1,0 +1,4 @@
+type,value,threat_level,score,malware_family,source,timestamp
+url,"192.42.116.57",CRITICAL,100,"",GhostWire-CTI-v7,2026-05-24T08:07:37Z
+ip,"192.42.116.57",CRITICAL,100,"",GhostWire-CTI-v7,2026-05-24T08:07:37Z
+ip,"192.42.116.57",CRITICAL,100,"",GhostWire-CTI-v7,2026-05-24T08:07:37Z

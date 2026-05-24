@@ -2,17 +2,6 @@
 frontend/urlhaus_panel.py
 --------------------------
 GhostWire CTI v6.1 — URLhaus UI Panel Renderer.
-
-This module is imported by extra_widgets.py (append render_urlhaus_panel
-to that file) OR can be used as a standalone import.
-
-render_urlhaus_panel(urlhaus_res, mode) renders the URLhaus result
-for three pipeline contexts:
-  mode="url"  → URL/Domain pipeline (shows URL status + host URLs)
-  mode="hash" → Hash pipeline (shows malware family + delivery URLs)
-  mode="ip"   → IP pipeline (shows malicious URL count for this host)
-
-Style matches existing Shodan / GreyNoise panels (Space Mono, dark theme).
 """
 
 from __future__ import annotations
@@ -175,6 +164,16 @@ def render_urlhaus_panel(urlhaus_res, mode: str = "url") -> None:
                     f'{_html.escape(str(urlhaus_res.signature))}</span>',
                     unsafe_allow_html=True,
                 )
+            elif urlhaus_res.sha256_hash or urlhaus_res.md5_hash:
+                st.markdown(
+                    '<p style="font-family:Space Mono,monospace;font-size:0.62rem;'
+                    'color:#ffd060;letter-spacing:0.2em">HASH STATUS</p>'
+                    '<span style="font-family:Space Mono,monospace;font-size:0.82rem;'
+                    'background:rgba(255,45,85,0.15);border:1px solid #ff2d55;color:#ff6b8a;'
+                    'border-radius:4px;padding:0.25rem 0.75rem;display:inline-block">'
+                    '⚠ FOUND IN MALWARE DB</span>',
+                    unsafe_allow_html=True,
+                )
             if urlhaus_res.file_type:
                 st.markdown(
                     f'<div style="font-family:Space Mono,monospace;font-size:0.65rem;'
@@ -193,6 +192,18 @@ def render_urlhaus_panel(urlhaus_res, mode: str = "url") -> None:
                 )
 
         with col_b:
+            # Score contribution badge — FIX v7: always show when hash found
+            if urlhaus_res.score_contribution > 0:
+                score_col = "#ff2d55" if urlhaus_res.score_contribution >= 20 else "#ffd060"
+                st.markdown(
+                    f'<p style="font-family:Space Mono,monospace;font-size:0.62rem;'
+                    f'color:#00ffb4;letter-spacing:0.2em">URLHAUS SCORE</p>'
+                    f'<span style="font-family:Space Mono,monospace;font-size:1.4rem;'
+                    f'font-weight:700;color:{score_col}">+{urlhaus_res.score_contribution}</span>'
+                    f'<span style="font-family:Space Mono,monospace;font-size:0.65rem;'
+                    f'color:#4a6a8a"> pts added to threat score</span>',
+                    unsafe_allow_html=True,
+                )
             if urlhaus_res.urls_found > 0:
                 count_col = "#ff2d55" if urlhaus_res.urls_found >= 5 else "#ffd060"
                 st.markdown(
@@ -243,11 +254,26 @@ def render_urlhaus_panel(urlhaus_res, mode: str = "url") -> None:
         )
         st.markdown(tags_html, unsafe_allow_html=True)
 
-    # ── Associated URLs expander (all modes) ─────────────────────────
+    # ── Score contribution (all modes) — show when hash/URL found ────
+    if urlhaus_res.score_contribution > 0 and mode != "hash":
+        # Hash mode already shows its own score badge above; skip duplication
+        score_col = "#ff2d55" if urlhaus_res.score_contribution >= 20 else "#ffd060"
+        st.markdown(
+            f'<div style="font-family:Space Mono,monospace;font-size:0.68rem;'
+            f'color:{score_col};margin-top:0.4rem">'
+            f'📊 URLhaus score contribution: <strong>+{urlhaus_res.score_contribution} pts</strong></div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Associated URLs / Database entries expander (all modes) ──────
     if urlhaus_res.associated_urls:
-        with st.expander(
-            f"🔗 Associated Malware URLs ({len(urlhaus_res.associated_urls)} shown of {urlhaus_res.urls_found})"
-        ):
+        expander_label = (
+            f"📋 URLhaus Database Entries — {len(urlhaus_res.associated_urls)} records"
+            f" (of {urlhaus_res.urls_found} total)"
+            if mode == "hash"
+            else f"🔗 Associated Malware URLs ({len(urlhaus_res.associated_urls)} shown of {urlhaus_res.urls_found})"
+        )
+        with st.expander(expander_label):
             for u in urlhaus_res.associated_urls:
                 url_str    = str(u.get("url", ""))
                 url_status = u.get("status", "")
@@ -281,8 +307,12 @@ def render_urlhaus_panel(urlhaus_res, mode: str = "url") -> None:
     ):
         st.markdown(
             '<div style="font-family:Space Mono,monospace;font-size:0.68rem;'
-            'color:#00ffb4;margin-top:0.3rem">'
-            '✅ Not found in URLhaus malware database</div>',
+            'color:#4a6a8a;margin-top:0.3rem">'
+            '✅ Not found in URLhaus malware payload database<br>'
+            '<span style="font-size:0.60rem;color:#2a3a4a">'
+            'URLhaus tracks malware file delivery URLs (EXE, DLL, scripts). '
+            'Phishing, C2, and spam domains may not appear here even if malicious.</span>'
+            '</div>',
             unsafe_allow_html=True,
         )
 

@@ -1,14 +1,4 @@
-"""
-backend/audit_log.py
---------------------
-Audit Logging — GhostWire CTI v6.1
 
-v6.1 additions:
-  - session_id  : hər Streamlit session üçün unikal ID
-  - hostname    : analiz edən maşının adı (open-source = local istifadə)
-  - request_seq : session daxilində neçənci sorğu olduğu
-  - Audit log-da kim nə analiz etdi tam izlənilir
-"""
 
 from __future__ import annotations
 

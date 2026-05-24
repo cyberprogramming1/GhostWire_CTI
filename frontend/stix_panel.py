@@ -2,9 +2,6 @@
 frontend/stix_panel.py
 -----------------------
 GhostWire CTI v7 — STIX 2.1 / TAXII Export Panel.
-
-Renders a download widget for STIX 2.1 bundle and CSV IOC export.
-Called from url_renderer.py / other_renderers.py after analysis completes.
 """
 
 from __future__ import annotations

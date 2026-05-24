@@ -23,7 +23,7 @@
 
 <br>
 
-![GhostWire IP Intelligence](assets/IP_Intelligence.gif)
+![GhostWire IP Intelligence](assets/IP_Intelligence%20.gif)
 
 </div>
 

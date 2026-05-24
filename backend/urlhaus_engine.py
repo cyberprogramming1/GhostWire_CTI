@@ -2,25 +2,6 @@
 backend/urlhaus_engine.py
 --------------------------
 GhostWire CTI v6 — URLhaus Threat Intelligence Engine.
-
-URLhaus is operated by abuse.ch — free API for malware URL / hash / host lookups.
-API docs: https://urlhaus-api.abuse.ch/
-
-Auth key (URLHAUS_API_KEY) is optional.
-  - Without key  : public lookups work, rate limit ~10 req/min
-  - With key     : higher rate limits, submit capabilities
-  - Key location : https://auth.abuse.ch/user/me  → copy "API Auth Key"
-  - .env entry   : URLHAUS_API_KEY=xxxx
-
-Graceful degradation:
-  If URLHAUS_API_KEY is missing or API is unreachable,
-  the engine returns an empty/safe result and logs a warning.
-  The rest of the pipeline continues unaffected.
-
-Three lookup modes (one function per pipeline):
-  query_url_host(url)   → pipeline_url  (URL + extracted host)
-  query_hash(hash_str)  → pipeline_hash (MD5 or SHA256)
-  query_host(host)      → pipeline_ip   (hostname or IP)
 """
 
 from __future__ import annotations
@@ -236,8 +217,10 @@ def _score_result(result: URLhausResult) -> None:
 
     # ── Host/IP associated URL count ──────────────────────────────────
     # FP FIX: Shared hosting means many legitimate domains on same IP.
-    # Threshold raised: 1-2 URLs = very common on shared hosters, skip.
-    # Only flag at 3+ with graduated scoring.
+    # Threshold: 1-2 URLs without confirmed threat = skip (shared hosting FP).
+    # FIX v7: BUT if url_status+threat already confirmed above (from merged
+    # host data), 1-URL is enough — the threat is domain-specific, not shared IP.
+    _url_count_scored = False
     if result.urls_found >= 10:
         score += 20
         result.flags.append(
@@ -245,6 +228,7 @@ def _score_result(result: URLhausResult) -> None:
             f"bulletproof/dedicated malware hosting suspected"
         )
         result.iocs.append(f"URLHAUS_HOST_URLS:{result.urls_found}")
+        _url_count_scored = True
     elif result.urls_found >= 5:
         score += 14
         result.flags.append(
@@ -252,6 +236,7 @@ def _score_result(result: URLhausResult) -> None:
             f"likely malware-friendly hosting"
         )
         result.iocs.append(f"URLHAUS_HOST_URLS:{result.urls_found}")
+        _url_count_scored = True
     elif result.urls_found >= 3:
         score += 8
         result.flags.append(
@@ -259,7 +244,19 @@ def _score_result(result: URLhausResult) -> None:
             f"Possible shared hosting — check if IP is a CDN/cloud."
         )
         result.iocs.append(f"URLHAUS_HOST_URLS:{result.urls_found}")
-    # 1-2 URLs: suppressed (shared hosting FP — too unreliable to score)
+        _url_count_scored = True
+    elif result.urls_found >= 1 and result.threat:
+        # FIX v7: 1-2 URLs normally suppressed for shared hosting FP.
+        # BUT if threat label is confirmed (from merged url_status/threat),
+        # this IS the domain's own malware URL — score it.
+        score += 6
+        result.flags.append(
+            f"🟠 URLhaus: {result.urls_found} confirmed malware URL(s) on this host "
+            f"— threat={result.threat} (domain-specific, not shared hosting)"
+        )
+        result.iocs.append(f"URLHAUS_HOST_URLS:{result.urls_found}")
+        _url_count_scored = True
+    # 1-2 URLs without threat label: suppressed (shared hosting FP)
 
     # ── Hash-based verdict (malware sample lookup) ────────────────────
     # Strongest signal: exact hash match = file confirmed as malware payload
@@ -330,10 +327,17 @@ def query_url_host(url: str) -> URLhausResult:
     result.used_key = bool(key)
 
     # Extract hostname for host lookup
+    # FIX v7: always prepend scheme so urlparse works for bare domains too.
+    # Additionally, strip port and path to get a clean host string.
     try:
         import urllib.parse as _up
-        parsed = _up.urlparse(url if "://" in url else "http://" + url)
-        hostname = parsed.hostname or ""
+        _url_for_parse = url if "://" in url else "http://" + url
+        parsed = _up.urlparse(_url_for_parse)
+        hostname = (parsed.hostname or "").strip().lower()
+        # If urlparse still fails (edge cases), fall back to splitting on /
+        if not hostname:
+            _stripped = _url_for_parse.split("://", 1)[-1]
+            hostname = _stripped.split("/")[0].split("?")[0].split("#")[0].split(":")[0].strip().lower()
     except Exception:
         hostname = ""
 
@@ -382,10 +386,13 @@ def query_url_host(url: str) -> URLhausResult:
                     result.sha256_hash = result.sha256_hash or p.get("response_sha256")
                     result.md5_hash = result.md5_hash or p.get("response_md5")
         elif status in ("invalid_url", "invalid_host", "invalid_format"):
-            result.available = False
-            result.errors.append(
-                f"URLhaus: Query rejected — {status} "
-                f"(check URL format or try adding http:// prefix)"
+            # FIX v7: bare domain (e.g. "malware.biz") will get invalid_url from /url/
+            # endpoint — that's expected. We still run the host lookup in Step 2.
+            # Do NOT set available=False here; just log quietly and continue.
+            # The host lookup result will set available correctly.
+            logger.debug(
+                "URLhaus /url/ rejected input %r as %r — will try host lookup",
+                url, status,
             )
         elif status:
             # Truly unknown status — log but don't surface as error to user
@@ -412,6 +419,31 @@ def query_url_host(url: str) -> URLhausResult:
                         "threat": u.get("threat", ""),
                         "date":   u.get("date_added", ""),
                     })
+
+                # FIX v7: merge url_status and threat from associated URLs
+                # Previously host lookup only counted urls_found, ignoring per-URL
+                # status/threat. This meant a host with 1 offline malware_download URL
+                # showed as clean (1-URL threshold + no url_status set).
+                #
+                # Strategy: pick the WORST url_status across all associated URLs.
+                # Priority: online > offline > unknown
+                # Also pick any threat label found.
+                _status_priority = {"online": 2, "offline": 1, "unknown": 0}
+                _best_status = None
+                _best_priority = -1
+                for u in h_urls[:10]:
+                    _us = u.get("url_status", "")
+                    _ut = u.get("threat", "")
+                    _p  = _status_priority.get(_us, -1)
+                    if _p > _best_priority:
+                        _best_priority = _p
+                        _best_status   = _us
+                    if _ut and not result.threat:
+                        result.threat = _ut
+
+                # Only set url_status from host data if /url/ lookup didn't already set it
+                if _best_status and not result.url_status:
+                    result.url_status = _best_status
 
                 # Merge tags from host data
                 for u in h_urls[:10]:
@@ -459,34 +491,41 @@ def query_hash(hash_str: str) -> URLhausResult:
     status = data.get("query_status", "")
     result.query_status = status
 
-    if status == "is_payload":
-        result.available   = True
-        result.md5_hash    = data.get("md5_hash")
-        result.sha256_hash = data.get("sha256_hash")
-        result.file_type   = data.get("file_type")
-        result.file_size   = data.get("file_size")
-        result.signature   = data.get("signature")   # malware family if identified
-        result.virustotal  = data.get("virustotal")
+    if status in ("is_payload", "ok"):
+        # URLhaus /payload/ returns "is_payload" OR "ok" when hash is found.
+        # Both statuses carry the same payload fields — parse them identically.
+        # "ok" with no md5_hash/sha256_hash = truly not found (handled below).
+        has_data = bool(data.get("md5_hash") or data.get("sha256_hash"))
+        if has_data:
+            result.available   = True
+            result.md5_hash    = data.get("md5_hash")
+            result.sha256_hash = data.get("sha256_hash")
+            result.file_type   = data.get("file_type")
+            result.file_size   = data.get("file_size")
+            result.signature   = data.get("signature")   # malware family if identified
+            result.virustotal  = data.get("virustotal")
 
-        # Associated delivery URLs
-        urls = data.get("urls") or []
-        for u in urls[:5]:
-            result.associated_urls.append({
-                "url":    u.get("url", ""),
-                "status": u.get("url_status", ""),
-                "threat": u.get("threat", ""),
-                "date":   u.get("date_added", ""),
-            })
-        result.urls_found = len(urls)
+            # Associated delivery URLs
+            urls = data.get("urls") or []
+            for u in urls[:5]:
+                result.associated_urls.append({
+                    "url":    u.get("url", ""),
+                    "status": u.get("url_status", ""),
+                    "threat": u.get("threat", ""),
+                    "date":   u.get("date_added", ""),
+                })
+            result.urls_found = len(urls)
 
-        # Extract tags from associated URLs
-        for u in urls[:10]:
-            for t in (u.get("tags") or []):
-                if t not in result.tags:
-                    result.tags.append(t)
+            # Extract tags from associated URLs
+            for u in urls[:10]:
+                for t in (u.get("tags") or []):
+                    if t not in result.tags:
+                        result.tags.append(t)
+        else:
+            # "ok" or "is_payload" with no hash fields = not found
+            result.available = True
 
-    elif status in ("no_results", "ok"):
-        # "no_results" / "ok" = hash not found in malware database
+    elif status == "no_results":
         result.available = True
     elif status in ("invalid_md5", "invalid_sha256", "invalid_hash", "invalid_format"):
         result.available = False
@@ -529,31 +568,50 @@ def query_host(host: str) -> URLhausResult:
     status = data.get("query_status", "")
     result.query_status = status
 
-    if status == "is_host":
-        result.available = True
+    if status in ("is_host", "ok"):
+        # URLhaus /host/ returns "is_host" OR "ok" when host is found with malware URLs.
+        # Both statuses carry the same urls array — parse them identically.
+        # "ok" with empty/missing urls = truly not found.
         urls = data.get("urls") or []
-        result.urls_found = len(urls)
-
-        for u in urls[:5]:
-            result.associated_urls.append({
-                "url":    u.get("url", ""),
-                "status": u.get("url_status", ""),
-                "threat": u.get("threat", ""),
-                "date":   u.get("date_added", ""),
-            })
-
-        # Merge tags
-        for u in urls[:10]:
-            for t in (u.get("tags") or []):
-                if t not in result.tags:
-                    result.tags.append(t)
-
-        # First URL's threat type as overall threat label
         if urls:
-            result.threat = urls[0].get("threat")
+            result.available = True
+            result.urls_found = len(urls)
 
-    elif status in ("no_results", "ok"):
-        # "ok" = API ran successfully but host has no malware URLs on record
+            for u in urls[:5]:
+                result.associated_urls.append({
+                    "url":    u.get("url", ""),
+                    "status": u.get("url_status", ""),
+                    "threat": u.get("threat", ""),
+                    "date":   u.get("date_added", ""),
+                })
+
+            # Merge tags
+            for u in urls[:10]:
+                for t in (u.get("tags") or []):
+                    if t not in result.tags:
+                        result.tags.append(t)
+
+            # FIX v7: merge worst url_status across all associated URLs
+            # Same logic as query_url_host Step 2 fix
+            _status_priority = {"online": 2, "offline": 1, "unknown": 0}
+            _best_status = None
+            _best_priority = -1
+            for u in urls[:10]:
+                _us = u.get("url_status", "")
+                _p  = _status_priority.get(_us, -1)
+                if _p > _best_priority:
+                    _best_priority = _p
+                    _best_status   = _us
+            if _best_status:
+                result.url_status = _best_status
+
+            # First URL's threat type as overall threat label
+            result.threat = urls[0].get("threat")
+        else:
+            # "ok" or "is_host" with no urls = host not in malware database
+            result.available = True
+
+    elif status == "no_results":
         result.available = True
     elif status in ("invalid_host", "invalid_ip", "invalid_format"):
         result.available = False

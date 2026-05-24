@@ -203,9 +203,13 @@ def _ocr_ollama_vision(image_bytes: bytes) -> tuple[Optional[str], str]:
     if len(image_bytes) > MAX_IMAGE_BYTES:
         return None, f"image_too_large:{len(image_bytes)}"
     try:
-        import ollama, base64
+        import ollama, base64, os
         b64 = base64.b64encode(image_bytes).decode()
-        response = ollama.chat(
+        # FIX v7: use OLLAMA_BASE_URL from environment (same as ai_analyzer.py)
+        # Previously used bare ollama.chat() which always hits localhost:11434
+        host = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        client = ollama.Client(host=host)
+        response = client.chat(
             model="llava",
             messages=[{"role":"user","content":"Extract ALL text from this email screenshot exactly as shown. Include From/To/Subject headers and full body. Return only the text.","images":[b64]}],
             options={"temperature":0.0,"num_predict":1500},
@@ -408,7 +412,7 @@ def _abuseipdb_sender(domain: str, abuse_key: str, intel: SenderIntelResult) -> 
         ip = socket.gethostbyname(domain)
         intel.sender_ip = ip
     except Exception:
-        intel.errors.append(f"Cannot resolve '{domain}' to IP")
+        intel.flags.append(f"⚠ DNS: Cannot resolve '{domain}' to IP — AbuseIPDB check skipped")
         return
     try:
         r = requests.get(
@@ -474,14 +478,36 @@ def check_sender_intelligence(domain, email, vt_key, abuse_key) -> SenderIntelRe
 
 # ── AI Analysis ───────────────────────────────────────────────────────────────
 
-def _analyze_email_ai(text: str) -> AIEmailAnalysis:
+def _analyze_email_ai(text: str, ollama_model: str = "phi3:mini") -> AIEmailAnalysis:
     result = AIEmailAnalysis()
     try:
-        import ollama
-        # Try faster models first
-        for model in ["phi3:mini", "llama3.2", "llama3", "mistral"]:
+        import ollama, os
+        # FIX v7: use OLLAMA_BASE_URL from environment — same pattern as ai_analyzer.py
+        # Previously used bare ollama.chat() which always hit localhost:11434
+        host = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        client = ollama.Client(host=host)
+
+        # Try user-selected model first, then fall back to alternatives
+        fallback_models = ["phi3:mini", "llama3.2", "llama3", "mistral", "gemma2:2b", "tinyllama"]
+        models_to_try = [ollama_model] + [m for m in fallback_models if m != ollama_model]
+
+        # FIX v7: query installed models first (same as ai_analyzer._resolve_models)
+        try:
+            import requests as _req
+            _tags = _req.get(f"{host.rstrip('/')}/api/tags", timeout=3)
+            if _tags.status_code == 200:
+                installed = [m["name"] for m in _tags.json().get("models", [])]
+                if installed:
+                    # Prioritize installed models, keep fallback chain after
+                    models_to_try = [ollama_model] + [
+                        m for m in installed if m != ollama_model
+                    ] + [m for m in fallback_models if m not in installed and m != ollama_model]
+        except Exception:
+            pass  # Use static fallback list
+
+        for model in models_to_try:
             try:
-                response = ollama.chat(
+                response = client.chat(
                     model=model,
                     messages=[
                         {"role":"system","content":_AI_EMAIL_SYSTEM},
@@ -518,7 +544,6 @@ def _analyze_email_ai(text: str) -> AIEmailAnalysis:
                 result.score_contribution = min(score, 40)
 
                 # ── Minimum score floors ──────────────────────────────────
-                # Spam + manipulation/social engineering → minimum MEDIUM
                 if result.spam_commercial and (result.manipulation_detected or result.social_engineering):
                     if result.score_contribution < 30:
                         result.score_contribution = 30
@@ -526,7 +551,6 @@ def _analyze_email_ai(text: str) -> AIEmailAnalysis:
                             "⚠️ AI Override: Spam + manipulation confirmed → score floor MEDIUM"
                         )
 
-                # Manipulation + social engineering birlikdə → minimum MEDIUM
                 if result.manipulation_detected and result.social_engineering:
                     if result.score_contribution < 28:
                         result.score_contribution = 28
@@ -534,7 +558,6 @@ def _analyze_email_ai(text: str) -> AIEmailAnalysis:
                             "⚠️ AI Override: Manipulation + social engineering → score floor raised"
                         )
 
-                # 3+ siqnal birlikdə → minimum HIGH floor
                 ai_signal_count = sum([
                     result.urgency_detected,
                     result.financial_threat,
@@ -641,6 +664,8 @@ def analyze_email(
     image_bytes: Optional[bytes] = None,
     vt_api_key: Optional[str] = None,
     abuse_api_key: Optional[str] = None,
+    ollama_model: str = "phi3:mini",
+    run_ai: bool = True,
 ) -> EmailForensicsResult:
     """Full email forensic pipeline: OCR → Sender extraction → VT+AbuseIPDB → AI → Score."""
     vt_api_key = vt_api_key or os.getenv("VIRUSTOTAL_API_KEY")
@@ -717,7 +742,12 @@ def analyze_email(
         result.flags.append("⚠ Sender domain not found — skipping VT/AbuseIPDB")
 
     # Step 6: AI analysis (7 signals)
-    ai = _analyze_email_ai(text)
+    if run_ai and text:
+        ai = _analyze_email_ai(text, ollama_model=ollama_model)
+    else:
+        ai = AIEmailAnalysis()
+        if not run_ai:
+            ai.error = "AI analysis disabled"
     result.ai_analysis = ai
 
     # ── Screenshot mode: AI is the primary signal source ─────────────

@@ -353,7 +353,9 @@ elif email_go:
     if not _check_rate_limit():
         st.stop()
     from pipelines.pipeline_email import run as _run_email
-    _run_email(email_input=email_input, email_img=email_img)
+    _run_email(email_input=email_input, email_img=email_img,
+               ollama_model=ollama_model, run_ai=run_ai,
+               vt_key=vt_key, abuse_key=abuse_key)
 
 elif ip_go:
     if not _check_rate_limit():

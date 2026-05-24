@@ -1,16 +1,3 @@
-"""
-utils/ai_analyzer.py
---------------------
-AI NLP Engine for GhostWire CTI Local.
-
-Sends the user-supplied text / URL to a locally running Ollama LLM
-(Llama 3 or Phi-3) and asks it to detect social-engineering signals:
-urgency, financial threats, and manipulation tactics.
-
-The model is prompted to respond with structured JSON so results can
-be parsed deterministically without brittle regex matching.
-"""
-
 import json
 import os
 import re
@@ -22,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Ollama client helper — reads OLLAMA_BASE_URL from environment
+# Ollama client helper
 # ---------------------------------------------------------------------------
 
 def _get_ollama_client():
@@ -32,6 +19,73 @@ def _get_ollama_client():
     return ollama.Client(host=host)
 
 
+def _get_ollama_base_url() -> str:
+    return os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+
+
+def _get_installed_models() -> list[str]:
+    """
+    Query Ollama /api/tags to get actually-installed models.
+    Returns empty list if Ollama is not running or not reachable.
+    Never raises.
+    """
+    try:
+        import requests
+        url = f"{_get_ollama_base_url()}/api/tags"
+        resp = requests.get(url, timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            models = [m["name"] for m in data.get("models", [])]
+            logger.debug("Ollama installed models: %s", models)
+            return models
+    except Exception as exc:
+        logger.debug("Cannot reach Ollama /api/tags: %s", exc)
+    return []
+
+
+def _resolve_models(preferred: Optional[str] = None) -> list[str]:
+    """
+    Build ordered list of models to try:
+      1. If preferred model given → try it first
+      2. Installed models (from /api/tags) that match known good names
+      3. Full fallback list (for environments where tags endpoint is blocked)
+    Never returns empty list.
+    """
+    KNOWN_GOOD = [
+        "phi3:mini", "phi3", "phi3:medium",
+        "llama3.2", "llama3.2:latest", "llama3", "llama3:latest",
+        "llama3.1", "llama3.1:latest",
+        "mistral", "mistral:latest",
+        "gemma2:2b", "gemma2", "gemma:2b",
+        "qwen2:1.5b", "qwen2",
+        "tinyllama", "tinyllama:latest",
+    ]
+
+    installed = _get_installed_models()
+    ordered: list[str] = []
+
+    if preferred and preferred not in ordered:
+        ordered.append(preferred)
+
+    # Prefer installed models in KNOWN_GOOD order
+    for name in KNOWN_GOOD:
+        if name in installed and name not in ordered:
+            ordered.append(name)
+
+    # Add any other installed models not in KNOWN_GOOD
+    for name in installed:
+        if name not in ordered:
+            ordered.append(name)
+
+    # Fallback: add KNOWN_GOOD even if not confirmed installed
+    # (useful when tags endpoint is unreachable but Ollama is actually running)
+    for name in KNOWN_GOOD:
+        if name not in ordered:
+            ordered.append(name)
+
+    return ordered
+
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -39,14 +93,15 @@ def _get_ollama_client():
 @dataclass
 class AIAnalysisResult:
     """Structured result returned by the AI NLP engine."""
-    score: int = 0                          # Risk contribution (0–30)
+    score: int = 0
     urgency_detected: bool = False
     financial_threat_detected: bool = False
     manipulation_detected: bool = False
-    summary: str = ""                       # One-sentence model explanation
-    raw_response: str = ""                  # Full model output for debugging
+    summary: str = ""
+    raw_response: str = ""
     flags: list[str] = field(default_factory=list)
     error: Optional[str] = None
+    model_used: Optional[str] = None   # NEW: which model succeeded
 
 
 # ---------------------------------------------------------------------------
@@ -97,22 +152,24 @@ You will receive a structured summary of a domain's reputation data. Your task i
 whether this domain is a LEGITIMATE organization's domain or MALICIOUS/SUSPICIOUS infrastructure.
 
 Key principles:
-- A domain with 0 engine detections on VirusTotal is NOT automatically safe — phishing domains
-  often evade detection engines.
-- A domain with 0 detections but malicious RELATED FILES may be legitimate — files uploaded BY
-  USERS of that service (e.g. airline, bank, gov site) frequently appear in VT relations.
+- A domain with 0 engine detections on VirusTotal is NOT automatically safe.
 - A well-known company, government entity, airline, bank, or public service domain is almost
   always legitimate even if related files are flagged.
 - Regional/national domains (.az, .gov.az, .com.az) for known local organizations are legitimate.
 - Evaluate the COMBINATION of signals, not individual ones in isolation.
+- URLhaus (abuse.ch) is a HIGH-CONFIDENCE malware database. If URLhaus shows MALICIOUS,
+  the domain has ACTIVELY hosted malware payloads — this STRONGLY indicates malicious infrastructure.
+  Do NOT declare a domain legitimate if URLhaus marks it as malicious.
+- OTX AlienVault pulses > 0 means the threat community has flagged this domain.
+- Overall threat score > 50 with URLhaus or OTX signals = very likely malicious.
 
 Respond ONLY with this exact JSON (no markdown, no extra text):
 {
   "is_legitimate": true | false,
   "confidence": "high" | "medium" | "low",
-  "organization": "<name of the organization this domain belongs to, or null if unknown>",
+  "organization": "<name of the organization or null>",
   "reasoning": "<one sentence explaining your decision>",
-  "relations_explained": "<one sentence explaining why the VT relations signal should or should not be trusted>"
+  "relations_explained": "<one sentence about VT relations signal>"
 }"""
 
 
@@ -120,11 +177,11 @@ Respond ONLY with this exact JSON (no markdown, no extra text):
 class DomainLegitimacyResult:
     """Result of AI-based domain legitimacy assessment."""
     is_legitimate:      bool          = False
-    confidence:         str           = "low"   # high / medium / low
+    confidence:         str           = "low"
     organization:       Optional[str] = None
     reasoning:          str           = ""
     relations_explained: str          = ""
-    ran:                bool          = False    # True if AI actually ran
+    ran:                bool          = False
     error:              Optional[str] = None
 
 
@@ -138,20 +195,34 @@ def assess_domain_legitimacy(
     popularity_rank:  Optional[int],
     vt_categories:    list[str],
     model:            Optional[str] = None,
+    # FIX v7: additional threat signals — URLhaus, OTX, SSL
+    urlhaus_score:    int = 0,
+    urlhaus_flags:    Optional[list] = None,
+    otx_pulses:       int = 0,
+    ssl_score:        int = 0,
+    final_score:      int = 0,
 ) -> DomainLegitimacyResult:
     """
     Ask the local LLM whether a domain is legitimate given all available signals.
-    Called AFTER all reputation engines finish — AI sees the full picture.
+    Returns DomainLegitimacyResult. If Ollama is unavailable, returns ran=False.
 
-    Returns DomainLegitimacyResult. If Ollama is unavailable, returns
-    ran=False so callers can skip the legitimacy gate.
+    FIX v7: Now includes URLhaus, OTX, SSL signals in context so the AI cannot
+    declare a domain 'legitimate' while URLhaus shows it as a malware host.
+    Also applies hard rule: if urlhaus_score > 0 AND is_legitimate → override to False.
     """
     result = DomainLegitimacyResult()
 
-    # Build a structured context string for the model
     age_str  = f"{domain_age_days} days old" if domain_age_days is not None else "unknown age"
-    rank_str = f"#{popularity_rank}" if popularity_rank else "not ranked (unknown/low-traffic)"
+    rank_str = f"#{popularity_rank}" if popularity_rank else "not ranked"
     cats_str = ", ".join(vt_categories) if vt_categories else "none"
+
+    # Build URLhaus context string
+    urlhaus_context = "No data"
+    if urlhaus_score > 0:
+        uh_flags_str = "; ".join((urlhaus_flags or [])[:3])
+        urlhaus_context = f"MALICIOUS — score contribution: {urlhaus_score} pts. Flags: {uh_flags_str}"
+    elif urlhaus_flags is not None:
+        urlhaus_context = "Checked — not found in malware database"
 
     context = f"""Domain: {domain}
 
@@ -161,24 +232,24 @@ VirusTotal categories assigned: {cats_str}
 AbuseIPDB confidence score: {abuse_confidence}%
 Domain age: {age_str}
 Popularity rank: {rank_str}
-
-Note: "related malicious files" means files that communicate with or were downloaded from
-this domain — they may be malware samples uploaded by users of a legitimate service,
-or actual malware hosted by a malicious domain. Context matters."""
+URLhaus (abuse.ch malware DB): {urlhaus_context}
+OTX AlienVault threat pulses: {otx_pulses} pulses
+SSL/TLS risk score: {ssl_score}/50
+Overall threat score: {final_score}/100"""
 
     try:
         client = _get_ollama_client()
     except ImportError:
-        result.error = "ollama not installed"
+        result.error = "ollama not installed — pip install ollama"
         return result
 
-    models_to_try = [model] if model else DEFAULT_MODELS
+    models_to_try = _resolve_models(model)
     messages = [
         {"role": "system", "content": DOMAIN_LEGITIMACY_SYSTEM},
         {"role": "user",   "content": context},
     ]
 
-    for candidate in models_to_try:
+    for candidate in models_to_try[:6]:   # try up to 6 models
         try:
             response = client.chat(
                 model=candidate,
@@ -198,12 +269,44 @@ or actual malware hosted by a malicious domain. Context matters."""
             result.reasoning          = str(parsed.get("reasoning", ""))
             result.relations_explained = str(parsed.get("relations_explained", ""))
             result.ran                = True
+
+            # ── HARD OVERRIDE: URLhaus or high threat score → never legitimate ──
+            # FIX v7: LLM may still declare legitimate based on VT/AbuseIPDB alone.
+            # If URLhaus confirmed malware hosting OR overall score is HIGH,
+            # force is_legitimate=False regardless of LLM decision.
+            if result.is_legitimate:
+                if urlhaus_score > 0:
+                    result.is_legitimate = False
+                    result.confidence    = "high"
+                    result.reasoning     = (
+                        f"Override: URLhaus (abuse.ch) confirmed malware hosting "
+                        f"(score +{urlhaus_score}) — domain cannot be considered legitimate."
+                    )
+                elif otx_pulses >= 3 and vt_malicious >= 1:
+                    result.is_legitimate = False
+                    result.confidence    = "medium"
+                    result.reasoning     = (
+                        f"Override: OTX {otx_pulses} threat pulses combined with "
+                        f"VT {vt_malicious} detections — insufficient evidence of legitimacy."
+                    )
+                elif final_score >= 70 and vt_malicious >= 3:
+                    result.is_legitimate = False
+                    result.confidence    = "medium"
+                    result.reasoning     = (
+                        f"Override: Threat score {final_score}/100 with {vt_malicious} VT "
+                        f"detections — high-confidence malicious assessment."
+                    )
+
             return result
 
-        except Exception:
+        except Exception as exc:
+            logger.debug("Legitimacy model '%s' failed: %s", candidate, exc)
             continue
 
-    result.error = "All Ollama models failed for legitimacy check"
+    result.error = (
+        "All Ollama models failed — ensure Ollama is running: `ollama serve` "
+        "and at least one model is pulled: `ollama pull phi3:mini`"
+    )
     return result
 
 
@@ -211,12 +314,14 @@ or actual malware hosted by a malicious domain. Context matters."""
 # Ollama interaction
 # ---------------------------------------------------------------------------
 
-# Models to try in preference order (user can override via function arg)
-DEFAULT_MODELS = ["llama3", "llama3.2", "phi3", "phi3:mini", "mistral"]
+# Legacy constant kept for backward-compat imports
+DEFAULT_MODELS = [
+    "phi3:mini", "phi3", "llama3.2", "llama3", "mistral",
+    "gemma2:2b", "tinyllama",
+]
 
 
 def _build_messages(content: str) -> list[dict]:
-    """Construct the messages array for the Ollama chat API."""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user",   "content": USER_PROMPT_TEMPLATE.format(content=content)},
@@ -224,55 +329,33 @@ def _build_messages(content: str) -> list[dict]:
 
 
 def _parse_llm_json(raw: str) -> Optional[dict]:
-    """
-    Robustly extract the JSON object from the model response.
-    Handles cases where the model wraps output in markdown fences despite
-    being told not to.
-    """
-    # Strip markdown code fences if present
+    """Robustly extract JSON from model response."""
     cleaned = re.sub(r"```(?:json)?", "", raw).strip()
-
-    # Try direct parse first
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
-
-    # Fall back to regex extraction of first {...} block
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
         except json.JSONDecodeError:
             pass
-
     return None
 
 
 def _score_from_parsed(parsed: dict) -> tuple[int, list[str]]:
-    """
-    Convert parsed LLM JSON into a numeric risk score and human-readable flags.
-
-        Urgency detected        → +15 pts
-        Financial threat        → +10 pts
-        Manipulation detected   → +5 pts
-        Maximum contribution    → 30 pts
-    """
     score = 0
     flags = []
-
     if parsed.get("urgency"):
         score += 15
         flags.append("AI detected urgency language (pressure tactics)")
-
     if parsed.get("financial_threat"):
         score += 10
         flags.append("AI detected financial threat / lure")
-
     if parsed.get("manipulation"):
         score += 5
         flags.append("AI detected psychological manipulation tactics")
-
     return min(score, 30), flags
 
 
@@ -285,75 +368,99 @@ def analyze_text(
     model: Optional[str] = None,
 ) -> AIAnalysisResult:
     """
-    Send ``content`` to a local Ollama LLM for phishing signal analysis.
+    Send content to local Ollama LLM for phishing signal analysis.
 
-    The function tries each model in ``DEFAULT_MODELS`` (or the caller-
-    supplied ``model``) until one succeeds, enabling graceful fallback
-    across different Ollama installations.
-
-    Args:
-        content: The URL, email body, or message text to analyse.
-        model:   Override the default model selection.
-
-    Returns:
-        AIAnalysisResult with score, individual flags, and a plain-English
-        summary from the LLM.
+    Dynamically resolves installed models first, then falls through
+    full fallback list. Timeout per model is 15s so the chain is fast.
     """
+    result = AIAnalysisResult()
+
     try:
         client = _get_ollama_client()
     except ImportError:
-        result = AIAnalysisResult()
-        result.error = "ollama Python library not installed — skipping AI analysis"
+        result.error = "ollama Python library not installed — run: pip install ollama"
         result.flags.append("Ollama library unavailable")
         return result
 
-    result = AIAnalysisResult()
     messages = _build_messages(content)
-    models_to_try = [model] if model else DEFAULT_MODELS
+    models_to_try = _resolve_models(model)
 
     last_error: Optional[str] = None
+    ollama_reachable = False
 
-    for candidate_model in models_to_try:
+    for candidate_model in models_to_try[:8]:   # max 8 attempts
         try:
             response = client.chat(
                 model=candidate_model,
                 messages=messages,
                 options={
-                    "temperature": 0.1,   # Low temp → deterministic JSON output
-                    "num_predict": 256,   # Limit tokens; we only need a small JSON blob
+                    "temperature": 0.1,
+                    "num_predict": 256,
                 },
             )
-
+            ollama_reachable = True
             raw_text: str = response["message"]["content"]
             result.raw_response = raw_text
 
             parsed = _parse_llm_json(raw_text)
-
             if parsed is None:
                 last_error = f"Model '{candidate_model}' returned non-parseable output"
-                continue  # Try next model
+                logger.debug(last_error)
+                continue
 
-            # Successful parse — populate result
             result.urgency_detected          = bool(parsed.get("urgency", False))
             result.financial_threat_detected = bool(parsed.get("financial_threat", False))
             result.manipulation_detected     = bool(parsed.get("manipulation", False))
-            result.summary                   = str(parsed.get("summary", "No summary provided."))
-
-            result.score, result.flags = _score_from_parsed(parsed)
+            result.summary                   = str(parsed.get("summary", "No summary."))
+            result.score, result.flags       = _score_from_parsed(parsed)
+            result.model_used                = candidate_model
 
             if not result.flags:
                 result.flags.append("AI found no significant social-engineering signals")
 
-            return result  # Success — exit loop
+            logger.info("AI analysis completed with model: %s", candidate_model)
+            return result
 
         except Exception as exc:
-            last_error = f"Unexpected error with model '{candidate_model}': {exc}"
+            err_str = str(exc)
+            # Check if this is a "model not found" error vs connectivity error
+            if "model" in err_str.lower() and (
+                "not found" in err_str.lower() or "pull" in err_str.lower()
+            ):
+                # Model not installed — try next silently
+                logger.debug("Model '%s' not installed, trying next", candidate_model)
+                last_error = f"Model '{candidate_model}' not installed"
+            elif "connection" in err_str.lower() or "refused" in err_str.lower():
+                # Ollama not running — no point trying more models
+                result.error = (
+                    "Ollama not running. Start it with: `ollama serve`\n"
+                    "Then pull a model: `ollama pull phi3:mini`"
+                )
+                result.flags.append("⚠ Ollama service not running — AI analysis skipped")
+                result.score = 0
+                return result
+            else:
+                last_error = f"Model '{candidate_model}' error: {err_str[:80]}"
+                logger.debug(last_error)
             continue
 
     # All models failed
-    result.error = last_error or "All Ollama models failed"
-    result.flags.append("AI analysis could not complete — check Ollama is running")
-    result.score = 0  # Don't penalise if we simply can't reach the model
+    if not ollama_reachable:
+        result.error = (
+            "Cannot reach Ollama. Start it: `ollama serve` "
+            "and pull a model: `ollama pull phi3:mini`"
+        )
+        result.flags.append("⚠ Ollama not reachable — AI analysis skipped (heuristics only)")
+    else:
+        result.error = (
+            f"No compatible model found. Pull one: `ollama pull phi3:mini`\n"
+            f"Last error: {last_error}"
+        )
+        result.flags.append(
+            "⚠ No compatible Ollama model — pull one: `ollama pull phi3:mini`"
+        )
+
+    result.score = 0
     return result
 
 
@@ -373,17 +480,6 @@ def generate_ha_ai_summary(ha_result, model: str = "phi3:mini") -> HASummaryResu
     """
     Generate an AI narrative summary from Hybrid Analysis sandbox results.
     Uses Ollama locally — no data sent to external AI APIs.
-
-    Parameters
-    ----------
-    ha_result : HAResult
-        The parsed sandbox result object.
-    model : str
-        Ollama model name to use.
-
-    Returns
-    -------
-    HASummaryResult with narrative, threat assessment, and recommended actions.
     """
     try:
         client = _get_ollama_client()
@@ -394,16 +490,15 @@ def generate_ha_ai_summary(ha_result, model: str = "phi3:mini") -> HASummaryResu
 
     out = HASummaryResult()
 
-    # Build a structured context block from HA results
-    flags_text      = "\n".join(ha_result.flags[:15])         if ha_result.flags          else "None"
-    iocs_text       = "\n".join(ha_result.iocs[:10])          if ha_result.iocs           else "None"
-    sigs_text       = "\n".join(ha_result.signatures[:10])    if ha_result.signatures     else "None"
-    mitre_text      = "\n".join(
+    flags_text     = "\n".join(ha_result.flags[:15])      if ha_result.flags          else "None"
+    iocs_text      = "\n".join(ha_result.iocs[:10])       if ha_result.iocs           else "None"
+    sigs_text      = "\n".join(ha_result.signatures[:10]) if ha_result.signatures     else "None"
+    mitre_text     = "\n".join(
         f"{m.get('tactic','?')} / {m.get('technique','?')} — {m.get('name','?')}"
         for m in ha_result.mitre_attcks[:8]
     ) if ha_result.mitre_attcks else "None"
-    net_hosts_text  = ", ".join(ha_result.contacted_hosts[:8]) if ha_result.contacted_hosts else "None"
-    av_text         = "\n".join(
+    net_hosts_text = ", ".join(ha_result.contacted_hosts[:8]) if ha_result.contacted_hosts else "None"
+    av_text        = "\n".join(
         f"{d['engine']}: {d['result']}"
         for d in ha_result.av_detections[:6]
     ) if ha_result.av_detections else "None"
@@ -438,23 +533,18 @@ AV DETECTIONS:
 
     system_prompt = """You are a senior SOC analyst and threat intelligence expert.
 You will receive a structured Hybrid Analysis sandbox report.
-Your task is to produce a clear, concise threat intelligence summary.
-
 Respond ONLY with valid JSON — no markdown, no code fences, no extra text:
 {
-  "summary": "<2-3 sentence executive summary of what this sample/URL does and its threat level>",
-  "threat_narrative": "<detailed technical narrative: attack chain, TTPs, objectives — 3-5 sentences>",
+  "summary": "<2-3 sentence executive summary>",
+  "threat_narrative": "<detailed technical narrative 3-5 sentences>",
   "recommended_actions": ["<action 1>", "<action 2>", "<action 3>", "<action 4>"],
   "confidence": "high" | "medium" | "low"
 }"""
 
-    user_prompt = f"Analyse this sandbox report and provide a threat intelligence summary:\n\n{context}"
+    user_prompt = f"Analyse this sandbox report:\n\n{context}"
+    models_to_try = _resolve_models(model)
 
-    models_to_try = [model, "phi3:mini", "llama3", "mistral"]
-    seen: set[str] = set()
-    ordered = [m for m in models_to_try if not (m in seen or seen.add(m))]  # deduplicate
-
-    for candidate in ordered:
+    for candidate in models_to_try[:6]:
         try:
             response = client.chat(
                 model=candidate,

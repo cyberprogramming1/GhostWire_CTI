@@ -984,4 +984,27 @@ def compute_final_score(
         rep.abuse_confidence, engines_triggered, sig,
     )
 
+    # ── Rule 6: VT detections + newly registered domain → MEDIUM floor ──────
+    # If VT flags ≥3 engines AND domain is newly registered (WHOIS score≥30),
+    # the combination is too suspicious to stay at LOW.
+    # Normalization can push raw score below 40 even with strong signals.
+    # FIX v7: apply minimum 40 (MEDIUM entry) for this confirmed combo.
+    _whois_score = getattr(w, "score", 0)
+    if rep.vt_malicious >= 3 and _whois_score >= 30 and score < 40:
+        extra_flags.append(
+            f"⚠️ Score Floor: VT {rep.vt_malicious} detections + newly registered domain "
+            f"(WHOIS={_whois_score}/40) → minimum MEDIUM (40)"
+        )
+        score = 40
+        sig.score_adjustments.append(("VT+NewDomain Floor", 40 - normalized))
+
+    # ── Rule 7: VT ≥3 alone → minimum LOW-HIGH floor (35) ───────────────────
+    # Even without WHOIS signal: 3+ VT engines should never score below 35.
+    elif rep.vt_malicious >= 3 and score < 35:
+        extra_flags.append(
+            f"⚠️ Score Floor: VT {rep.vt_malicious} engine detections → minimum 35"
+        )
+        score = 35
+        sig.score_adjustments.append(("VT Detection Floor", 35 - normalized))
+
     return score, sig, extra_flags

@@ -2,10 +2,6 @@
 pipelines/pipeline_hash.py
 --------------------------
 GhostWire CTI v6 — Pipeline B: File / Hash analysis.
-
-v6.1: URLhaus hash lookup added via run_hash_engines_parallel.
-      Checks if uploaded file hash exists in abuse.ch malware database.
-      Runs in parallel with VirusTotal lookup (concurrent.futures).
 """
 from __future__ import annotations
 import time
@@ -78,40 +74,51 @@ def run(
             return parallel.get("urlhaus")
         return None
 
-    h_res_f    = None
-    urlhaus_res = None
+    from backend.urlhaus_engine import URLhausResult as _URLhausResult
+
+    h_res_f     = None
+    urlhaus_res: _URLhausResult = _URLhausResult()   # default: available=False, no errors
     otx_res     = None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    def _run_otx_parallel():
+        if run_otx and _hash_for_urlhaus:
+            from backend.otx_engine import query_hash as _otx_qh
+            return _otx_qh(_hash_for_urlhaus, vt_malicious=0)
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         f_vt       = pool.submit(_run_vt)
         f_urlhaus  = pool.submit(_run_urlhaus_parallel)
-
-        def _run_otx_parallel():
-            if run_otx and _hash_for_urlhaus:
-                from backend.otx_engine import query_hash as _otx_qh
-                return _otx_qh(_hash_for_urlhaus, vt_malicious=0)
-            return None
-        f_otx = pool.submit(_run_otx_parallel)
+        f_otx      = pool.submit(_run_otx_parallel)
         try:
             h_res_f    = f_vt.result(timeout=120)
         except Exception as e:
             st.error(f"VirusTotal analysis failed: {e}")
             return
         try:
-            urlhaus_res = f_urlhaus.result(timeout=30)
-            otx_res     = f_otx.result(timeout=30)
+            _uh = f_urlhaus.result(timeout=30)
+            if _uh is not None:
+                urlhaus_res = _uh
+        except Exception as _uh_exc:
+            _msg = str(_uh_exc)
+            if "timeout" in _msg.lower() or "TimeoutError" in type(_uh_exc).__name__:
+                urlhaus_res.errors = ["timeout"]
+            else:
+                urlhaus_res.errors = [f"URLhaus lookup error: {_msg[:80]}"]
+        try:
+            otx_res = f_otx.result(timeout=30)
         except Exception:
-            pass   # URLhaus failure is non-fatal
+            pass
 
     prog.progress(100, "Done."); time.sleep(0.3); prog.empty()
     ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    # ── Render VT / PE / hash results ────────────────────────────────
-    render_hash_results(h_res_f, ts)
+    # ── FIX v7: Integrate ALL scores BEFORE rendering ────────────────
+    # Previously render_hash_results() was called first, then URLhaus/OTX
+    # scores were added — gauge and threat banner already rendered at 0.
+    # Now: collect all scores → update h_res_f → render once with final score.
 
-    # NEW: Render URLhaus panel below hash results
-    if run_urlhaus and urlhaus_res:
-        # Integrate URLhaus score into hash result score
+    if run_urlhaus:
         if getattr(urlhaus_res, "score_contribution", 0) > 0:
             uh_boost = urlhaus_res.score_contribution
             h_res_f.score = min(h_res_f.score + uh_boost, 100)
@@ -119,9 +126,7 @@ def run(
                 f"🦠 URLhaus: +{uh_boost} pts — hash found in malware database"
             )
             h_res_f.iocs.extend(urlhaus_res.iocs)
-        render_urlhaus_panel(urlhaus_res, mode="hash")
 
-    # v7: OTX hash lookup — re-score with VT data, then render
     if run_otx and otx_res and getattr(otx_res, "available", False):
         from backend.otx_engine import _score_result as _otx_rescore
         vt_mal = getattr(h_res_f, "vt_malicious", 0)
@@ -133,6 +138,14 @@ def run(
                 f"🛸 OTX: +{otx_res.score_contribution} pts — "
                 f"{otx_res.pulse_count} pulses corroborated with VT"
             )
+
+    # ── Now render with final score ───────────────────────────────────
+    render_hash_results(h_res_f, ts)
+
+    if run_urlhaus:
+        render_urlhaus_panel(urlhaus_res, mode="hash")
+
+    if run_otx and otx_res and getattr(otx_res, "available", False):
         render_otx_panel(otx_res, mode="hash")
 
     log_analysis(

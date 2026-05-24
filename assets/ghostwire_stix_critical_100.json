@@ -1,0 +1,100 @@
+{
+  "type": "bundle",
+  "id": "bundle--bb4d8163-d255-4466-8845-f74287c697eb",
+  "spec_version": "2.1",
+  "objects": [
+    {
+      "type": "identity",
+      "spec_version": "2.1",
+      "id": "identity--aa7a064a-2c54-5516-b5d5-266129d8445b",
+      "created": "2026-01-01T00:00:00.000Z",
+      "modified": "2026-01-01T00:00:00.000Z",
+      "name": "GhostWire CTI v7",
+      "identity_class": "system",
+      "description": "GhostWire Cyber Threat Intelligence Platform — automated IOC analysis"
+    },
+    {
+      "type": "indicator",
+      "spec_version": "2.1",
+      "id": "indicator--01424626-d8ce-511c-a774-c338385140e6",
+      "created": "2026-05-24T08:09:21.000Z",
+      "modified": "2026-05-24T08:09:21.000Z",
+      "name": "Malicious URL: 192.42.116.57",
+      "description": "GhostWire analysis: score 100/100, threat level CRITICAL. IP Intelligence analysis. Country: NL. ASN: AS215125.",
+      "indicator_types": [
+        "malicious-activity"
+      ],
+      "pattern": "[url:value = '192.42.116.57']",
+      "pattern_type": "stix",
+      "valid_from": "2026-05-24T08:09:21.000Z",
+      "confidence": 95,
+      "labels": [
+        "ghostwire-auto-generated"
+      ],
+      "created_by_ref": "identity--aa7a064a-2c54-5516-b5d5-266129d8445b"
+    },
+    {
+      "type": "indicator",
+      "spec_version": "2.1",
+      "id": "indicator--7b9a051c-214a-5447-9aa7-480eeb6ca221",
+      "created": "2026-05-24T08:09:21.000Z",
+      "modified": "2026-05-24T08:09:21.000Z",
+      "name": "Malicious domain: 192.42.116.57",
+      "description": "Domain extracted from GhostWire target URL analysis",
+      "indicator_types": [
+        "malicious-activity"
+      ],
+      "pattern": "[domain-name:value = '192.42.116.57']",
+      "pattern_type": "stix",
+      "valid_from": "2026-05-24T08:09:21.000Z",
+      "confidence": 95,
+      "labels": [
+        "ghostwire-auto-generated"
+      ],
+      "created_by_ref": "identity--aa7a064a-2c54-5516-b5d5-266129d8445b"
+    },
+    {
+      "type": "indicator",
+      "spec_version": "2.1",
+      "id": "indicator--bc29774f-8e1c-5726-8fcc-ce174f26ea15",
+      "created": "2026-05-24T08:09:21.000Z",
+      "modified": "2026-05-24T08:09:21.000Z",
+      "name": "Malicious IP: 192.42.116.57",
+      "description": "IP hosting malicious infrastructure (GhostWire score 100/100)",
+      "indicator_types": [
+        "malicious-activity"
+      ],
+      "pattern": "[ipv4-addr:value = '192.42.116.57']",
+      "pattern_type": "stix",
+      "valid_from": "2026-05-24T08:09:21.000Z",
+      "confidence": 95,
+      "labels": [
+        "ghostwire-auto-generated"
+      ],
+      "created_by_ref": "identity--aa7a064a-2c54-5516-b5d5-266129d8445b"
+    },
+    {
+      "type": "report",
+      "spec_version": "2.1",
+      "id": "report--d9e4ab66-cf48-5762-a3fa-0e64011641cb",
+      "created": "2026-05-24T08:09:21.000Z",
+      "modified": "2026-05-24T08:09:21.000Z",
+      "name": "GhostWire CTI Analysis — 192.42.116.57",
+      "description": "Automated threat intelligence report. Score: 100/100, Level: CRITICAL. IP Intelligence analysis. Country: NL. ASN: AS215125.",
+      "published": "2026-05-24T08:09:21.000Z",
+      "report_types": [
+        "threat-report"
+      ],
+      "object_refs": [
+        "indicator--01424626-d8ce-511c-a774-c338385140e6",
+        "indicator--7b9a051c-214a-5447-9aa7-480eeb6ca221",
+        "indicator--bc29774f-8e1c-5726-8fcc-ce174f26ea15"
+      ],
+      "labels": [
+        "threat-level:critical",
+        "score:100"
+      ],
+      "created_by_ref": "identity--aa7a064a-2c54-5516-b5d5-266129d8445b"
+    }
+  ]
+}

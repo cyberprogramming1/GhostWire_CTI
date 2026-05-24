@@ -2,30 +2,6 @@
 backend/stix_export.py
 -----------------------
 GhostWire CTI v7 — STIX 2.1 / TAXII-compatible IOC Export Engine.
-
-Generates STIX 2.1 Bundle JSON without external dependencies (stix2 lib optional).
-Falls back to pure-JSON STIX structure if stix2 library is not installed.
-
-What is exported:
-  - Indicators (URL, domain, IP, hash) with pattern expressions
-  - Threat actor (if OTX attributed)
-  - Malware object (if signature detected)
-  - Relationship objects linking indicators to threats
-  - Report object tying everything together
-
-Output formats:
-  export_stix_bundle(result_dict) → str (STIX 2.1 JSON bundle)
-  export_csv_iocs(result_dict)    → str (simple IOC CSV)
-
-TAXII compatibility:
-  The bundle JSON can be POSTed directly to a TAXII 2.1 Collections endpoint:
-    POST /taxii2/api_root/collections/{collection_id}/objects/
-    Content-Type: application/taxii+json;version=2.1
-    Body: export_stix_bundle(...)
-
-Docs:
-  STIX 2.1: https://docs.oasis-open.org/cti/stix/v2.1/
-  TAXII 2.1: https://docs.oasis-open.org/cti/taxii/v2.1/
 """
 
 from __future__ import annotations
