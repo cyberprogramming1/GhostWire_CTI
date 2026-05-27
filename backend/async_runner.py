@@ -130,19 +130,43 @@ def run_engines_parallel(
         logger.debug("Passive DNS disabled — skipping")
 
     if run_shodan:
-        _st = ip_address or target
+        # FIX v8: Shodan InternetDB expects a bare hostname or IP, not a full URL with path.
+        # Extract hostname from target URL before passing to Shodan.
+        if ip_address:
+            _st = ip_address
+        else:
+            try:
+                import urllib.parse as _sd_up
+                _sd_parsed = _sd_up.urlparse(target if "://" in target else "http://" + target)
+                _st = _sd_parsed.hostname or target
+            except Exception:
+                _st = target
         tasks.append(("shodan", analyze_shodan, (_st,), {"api_key": shodan_key}, _err_shodan))
     else:
         logger.debug("Shodan disabled — skipping")
 
-    if run_greynoise and ip_address:
-        tasks.append(("greynoise", analyze_greynoise, (ip_address,), {}, _err_greynoise))
-    else:
-        logger.debug("GreyNoise disabled or no IP — skipping")
+   
+    _greynoise_ip = ip_address
+    if run_greynoise and not _greynoise_ip:
+        # Try to resolve the hostname to an IP for GreyNoise
+        try:
+            import socket as _sock
+            import urllib.parse as _gn_up
+            _gn_host = (_gn_up.urlparse(
+                target if "://" in target else "http://" + target
+            ).hostname or "").strip()
+            if _gn_host:
+                _greynoise_ip = _sock.gethostbyname(_gn_host)
+                logger.debug("GreyNoise: resolved %s → %s for domain lookup", _gn_host, _greynoise_ip)
+        except Exception as _gn_exc:
+            logger.debug("GreyNoise: could not resolve IP for domain — %s", _gn_exc)
 
-    # NEW: URLhaus — use query_host for IPs, query_url_host for URLs/domains
-    # FIX v7: query_url_host sends to /url/ first (gets invalid_url for IPs),
-    # then /host/. query_host goes directly to /host/ — more reliable for IPs.
+    if run_greynoise and _greynoise_ip:
+        tasks.append(("greynoise", analyze_greynoise, (_greynoise_ip,), {}, _err_greynoise))
+    else:
+        logger.debug("GreyNoise disabled or IP not resolvable — skipping")
+
+   
     if run_urlhaus:
         if ip_address:
             tasks.append(("urlhaus", query_host, (ip_address,), {}, _err_urlhaus))
@@ -151,10 +175,7 @@ def run_engines_parallel(
     else:
         logger.debug("URLhaus disabled — skipping (set run_urlhaus=True to enable)")
 
-    # v7: OTX — route to correct indicator type based on target
-    # FIX v7: Previously always called query_domain(target) regardless of input.
-    # IP input → OTX domain lookup → no results (wrong indicator type).
-    # Now: IP → query_ip, full URL → query_url + query_ip/domain, domain → query_domain
+   
     if run_otx:
         from backend.otx_engine import query_ip as _otx_qi
 

@@ -2,6 +2,8 @@
 backend/otx_engine.py
 ----------------------
 GhostWire CTI v7 — AlienVault OTX (Open Threat Exchange) Engine.
+
+
 """
 
 from __future__ import annotations
@@ -15,6 +17,13 @@ from typing import Optional
 import requests
 
 logger = logging.getLogger(__name__)
+
+# ── Caching ───────────────────────────────────────────────────────────────────
+try:
+    from backend.caching import CacheManager as _CacheManager
+    _otx_cache = _CacheManager("otx", ttl_hours=24)
+except ImportError:
+    _otx_cache = None
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -137,6 +146,16 @@ def _get_indicator(indicator_type: str, indicator: str, section: str) -> dict:
         return {"error": "invalid_section"}
 
     safe_indicator = _sanitize(indicator)
+
+    # ── Cache lookup ──────────────────────────────────────────────────
+    # Key: "indicator_type:indicator:section" — unique per request type
+    _cache_key = f"{indicator_type}:{safe_indicator}:{section}"
+    if _otx_cache is not None:
+        _cached = _otx_cache.get(_cache_key)
+        if _cached is not None:
+            logger.debug("OTX cache HIT [%s/%s/%s]", indicator_type, safe_indicator[:20], section)
+            return _cached
+
     url = f"{OTX_API_BASE}/indicators/{indicator_type}/{safe_indicator}/{section}"
 
     try:
@@ -149,7 +168,11 @@ def _get_indicator(indicator_type: str, indicator: str, section: str) -> dict:
             if len(resp.content) > 2_000_000:
                 logger.warning("OTX response too large (%d bytes)", len(resp.content))
                 return {"error": "response_too_large"}
-            return resp.json()
+            data = resp.json()
+            # Cache successful responses only
+            if _otx_cache is not None:
+                _otx_cache.set(_cache_key, data)
+            return data
         elif resp.status_code == 400:
             return {"error": "invalid_indicator", "status": 400}
         elif resp.status_code == 401:
@@ -250,18 +273,79 @@ def _parse_reputation(data: dict, result: OTXResult) -> None:
         result.reputation = int(rep)
 
 
+
+_INFRA_PULSE_KEYWORDS: list[tuple[frozenset[str], int, str]] = [
+    # (keywords_any_match,  score_pts, flag_label)
+    (
+        frozenset({"tor exit", "tor-exit", "torexit", "tor node", "tor network"}),
+        20,
+        "🧅 OTX: Confirmed Tor Exit Node — anonymisation infrastructure",
+    ),
+    (
+        frozenset({"honeynet", "honey net", "honeypot", "honey pot"}),
+        15,
+        "🍯 OTX: Found in HoneyNet feed — known malicious scanner/attacker",
+    ),
+    (
+        frozenset({"scanner", "scanning", "mass scan", "shodan", "internet scan"}),
+        10,
+        "🔍 OTX: Found in mass-scanner feed — aggressive reconnaissance activity",
+    ),
+    (
+        frozenset({"c2", "c&c", "command and control", "command & control", "botnet", "bot net"}),
+        18,
+        "☠️ OTX: Found in C2/Botnet feed — active malware infrastructure",
+    ),
+    (
+        frozenset({"brute force", "bruteforce", "brute-force", "ssh brute", "rdp brute"}),
+        12,
+        "🔨 OTX: Found in brute-force attacker feed",
+    ),
+    (
+        frozenset({"malware", "malicious", "ransomware", "dropper", "backdoor", "trojan"}),
+        15,
+        "☣️ OTX: Found in malware-distribution feed",
+    ),
+]
+
+
+def _detect_infra_signals(result: OTXResult) -> int:
+   
+    if not result.pulse_names:
+        return 0
+
+    infra_score  = 0
+    matched_cats: set[str] = set()
+
+    all_names_lower = " | ".join(result.pulse_names).lower()
+
+    for keywords, pts, flag in _INFRA_PULSE_KEYWORDS:
+        for kw in keywords:
+            if kw in all_names_lower:
+                cat = flag.split(":")[0]   # e.g. "🧅 OTX"
+                if cat not in matched_cats:
+                    matched_cats.add(cat)
+                    infra_score += pts
+                    result.flags.append(flag)
+                    # Add a short IOC tag
+                    ioc_tag = (
+                        "TOR_EXIT_NODE"   if "Tor" in flag else
+                        "HONEYNET_FEED"   if "HoneyNet" in flag else
+                        "SCANNER_FEED"    if "scanner" in flag else
+                        "C2_BOTNET_FEED"  if "C2" in flag else
+                        "BRUTEFORCE_FEED" if "brute" in flag else
+                        "MALWARE_FEED"
+                    )
+                    result.iocs.append(f"OTX_{ioc_tag}:{result.pulse_count}_pulses")
+                break   # Only count each category once
+
+    return infra_score
+
+
 # ── Scoring ───────────────────────────────────────────────────────────────────
 
 def _score_result(result: OTXResult, vt_malicious: int = 0) -> None:
-    """
-    Compute OTX score contribution.
-
-    Design principle: OTX alone cannot push score up.
-    It requires corroboration from VT (vt_malicious > 0).
-    This eliminates false positives from stale OTX pulses.
-
-    Max contribution: 15 points (supporting evidence, not primary signal).
-    """
+    
     score = 0
 
     if result.pulse_count == 0:
@@ -281,23 +365,37 @@ def _score_result(result: OTXResult, vt_malicious: int = 0) -> None:
         f"{pulse_label} OTX: Found in {result.pulse_count} threat intel pulse(s)"
     )
 
+   
+    infra_score = _detect_infra_signals(result)
+    if infra_score > 0:
+        score += infra_score
+        result.flags.append(
+            f"🚨 OTX Infrastructure Signal: +{infra_score} pts "
+            f"(classification feed — VT corroboration not required)"
+        )
+        result.iocs.append(f"OTX_PULSES:{result.pulse_count}")
+
     # ── Corroborated scoring (requires VT confirmation) ───────────────
     if vt_malicious > 0:
         if result.pulse_count >= _PULSE_HIGH_THRESHOLD:
-            score = 12
-            result.iocs.append(f"OTX_PULSES:{result.pulse_count}")
+            corr_score = 12
+            score += corr_score
+            if f"OTX_PULSES:{result.pulse_count}" not in result.iocs:
+                result.iocs.append(f"OTX_PULSES:{result.pulse_count}")
             result.flags.append(
                 f"🔴 OTX Corroborated: {result.pulse_count} pulses + VT confirmed → HIGH confidence"
             )
         elif result.pulse_count >= _PULSE_MED_THRESHOLD:
-            score = 6
-            result.iocs.append(f"OTX_PULSES:{result.pulse_count}")
+            corr_score = 6
+            score += corr_score
+            if f"OTX_PULSES:{result.pulse_count}" not in result.iocs:
+                result.iocs.append(f"OTX_PULSES:{result.pulse_count}")
             result.flags.append(
                 f"🟠 OTX Corroborated: {result.pulse_count} pulses + VT confirmed"
             )
         # 1-2 pulses even with VT — too low to score (noisy), context only
-    else:
-        # Pulse count without VT — informational only, no score
+    elif infra_score == 0:
+        # Non-infrastructure pulses without VT — informational only
         result.flags.append(
             f"⚠️ OTX: {result.pulse_count} pulse(s) but VT shows clean — "
             f"possible stale/FP pulses. Context only, no score added."
@@ -334,7 +432,7 @@ def _score_result(result: OTXResult, vt_malicious: int = 0) -> None:
             f"📊 OTX Reputation: {result.reputation} (very negative — strong malicious signal)"
         )
 
-    result.score_contribution = min(score, 15)
+    result.score_contribution = min(score, 35)   # FIX v7: raised cap (was 15) — infra signals can add up to 35
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

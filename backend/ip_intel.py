@@ -18,6 +18,15 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# ── Caching ───────────────────────────────────────────────────────────────────
+try:
+    from backend.caching import cache_result as _cache, CacheManager as _CacheManager
+except ImportError:
+    _CacheManager = None
+    def _cache(*a, **kw):
+        def _d(fn): return fn
+        return _d
+
 
 
 def _is_public_ip(ip: str) -> bool:
@@ -318,6 +327,22 @@ def _fetch_abuseipdb(ip: str, api_key: str, result: IPIntelResult) -> None:
         21: "Web App Attack", 22: "SSH", 23: "IoT Targeted",
     }
     try:
+        # ── Cache lookup ──────────────────────────────────────────────
+        _ip_abuse_cache = None
+        try:
+            from backend.caching import CacheManager as _CM
+            _ip_abuse_cache = _CM("abuseipdb", ttl_hours=24)
+            _cached_abuse = _ip_abuse_cache.get(ip)
+            if _cached_abuse is not None:
+                # Restore cached fields to result
+                for _k, _v in _cached_abuse.items():
+                    if hasattr(result, _k):
+                        setattr(result, _k, _v)
+                result.sources_queried.append("AbuseIPDB")
+                return
+        except Exception:
+            pass
+
         r = requests.get(
             "https://api.abuseipdb.com/api/v2/check",
             headers={"Key": api_key, "Accept": "application/json"},
@@ -350,6 +375,18 @@ def _fetch_abuseipdb(ip: str, api_key: str, result: IPIntelResult) -> None:
                 CATEGORY_NAMES.get(cid, f"Category {cid}") for cid in sorted(all_cat_ids)
             ]
             result.sources_queried.append("AbuseIPDB")
+            # Cache the parsed fields
+            if _ip_abuse_cache is not None:
+                _ip_abuse_cache.set(ip, {
+                    "abuse_confidence": result.abuse_confidence,
+                    "abuse_reports":    result.abuse_reports,
+                    "abuse_country":    result.abuse_country,
+                    "last_reported":    result.last_reported,
+                    "last_seen":        result.last_seen,
+                    "is_tor":           result.is_tor,
+                    "is_vpn":           result.is_vpn,
+                    "abuse_categories": result.abuse_categories,
+                })
         else:
             result.errors.append(f"AbuseIPDB HTTP {r.status_code}")
     except Exception as e:
@@ -359,6 +396,20 @@ def _fetch_abuseipdb(ip: str, api_key: str, result: IPIntelResult) -> None:
 # ── SOURCE 3: VirusTotal IP ──────────────────────────────────────────────────
 
 def _fetch_virustotal_ip(ip: str, api_key: str, result: IPIntelResult) -> None:
+    # FIX v8: VirusTotal IP calls now cached (24h TTL) — prevents quota burn on repeat lookups
+    _vt_ip_cache = None
+    try:
+        if _CacheManager is not None:
+            _vt_ip_cache = _CacheManager("virustotal_ip", ttl_hours=24)
+            _cached_vt = _vt_ip_cache.get(ip)
+            if _cached_vt is not None:
+                for _k, _v in _cached_vt.items():
+                    if hasattr(result, _k):
+                        setattr(result, _k, _v)
+                logger.debug("VT IP cache HIT for %s", ip)
+                return
+    except Exception as _ce:
+        logger.debug("VT IP cache init error: %s", _ce)
     """
     Full VT IP intelligence:
       - Engine scan results
@@ -511,6 +562,28 @@ def _fetch_virustotal_ip(ip: str, api_key: str, result: IPIntelResult) -> None:
                     )
         except Exception as e:
             result.errors.append(f"VT {rel_name} error: {e}")
+
+    # FIX v8: Save to cache after all VT sub-calls complete
+    if _vt_ip_cache is not None and not result.errors:
+        try:
+            _vt_ip_cache.set(ip, {
+                "vt_malicious":                    result.vt_malicious,
+                "vt_suspicious":                   result.vt_suspicious,
+                "vt_harmless":                     result.vt_harmless,
+                "vt_total_engines":                result.vt_total_engines,
+                "vt_categories":                   result.vt_categories,
+                "vt_community_malicious_votes":    result.vt_community_malicious_votes,
+                "vt_community_harmless_votes":     result.vt_community_harmless_votes,
+                "vt_community_malicious_comments": result.vt_community_malicious_comments,
+                "vt_malicious_files":              getattr(result, "vt_malicious_files", 0),  # ip_intel field name
+                "vt_malicious_files":              getattr(result, "vt_malicious_files", 0),
+                "vt_popularity_rank":              result.vt_popularity_rank,
+                "vt_registrar":                    result.vt_registrar,
+                "flags":                           result.flags[:],
+                "iocs":                            result.iocs[:],
+            })
+        except Exception as _cse:
+            logger.debug("VT IP cache save error: %s", _cse)
 
 
 # ── SOURCE 4: ipinfo.io ──────────────────────────────────────────────────────

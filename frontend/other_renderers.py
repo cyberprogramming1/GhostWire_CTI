@@ -498,3 +498,196 @@ def render_ip_results(ip_res, ip_raw: str, timestamp: str) -> None:
         st.caption(f"⚠ STIX export error: {_stix_err}")
 
     footer(timestamp, "IP INTELLIGENCE")
+
+
+# ── Pipeline B (v9): Deep Forensic Engine Results ─────────────────────────────
+
+def render_forensic_results(forensic_res, timestamp: str) -> None:
+    """
+    Render ForensicReport from forensic_engine.deep_forensic_analysis().
+
+    Called only when a file was uploaded (not hash-only mode).
+    forensic_res can be:
+      - ForensicReport dataclass  → render full panel
+      - dict with "error" key     → show error
+      - None                      → file upload was skipped
+    """
+    st.markdown("---")
+    st.markdown(
+        '<p class="slabel">🔬 Deep Forensic Analysis</p>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Error / unavailable states ────────────────────────────────────
+    if forensic_res is None:
+        st.caption("Forensic analysis skipped (no file uploaded).")
+        return
+
+    if isinstance(forensic_res, dict):
+        err = forensic_res.get("error", "Unknown error")
+        st.warning(f"⚠️ Forensic engine error: {err}")
+        return
+
+    fr = forensic_res  # ForensicReport
+
+    # ── Threat level colour map ───────────────────────────────────────
+    _level_colours = {
+        "CRITICAL": "#ff2d55",
+        "HIGH":     "#ff9a3c",
+        "MEDIUM":   "#ffd060",
+        "LOW":      "#00ffb4",
+        "SAFE":     "#4a8a6a",
+        "UNKNOWN":  "#2a4060",
+    }
+    tl_colour = _level_colours.get(fr.threat_level, "#2a4060")
+
+    # ── Summary banner ────────────────────────────────────────────────
+    st.markdown(
+        f'<div style="background:rgba({int(tl_colour[1:3],16)},'
+        f'{int(tl_colour[3:5],16)},{int(tl_colour[5:7],16)},0.10);'
+        f'border:1px solid {tl_colour}44;border-radius:8px;'
+        f'padding:0.8rem 1.1rem;margin-bottom:0.8rem">'
+        f'<span style="font-family:Space Mono,monospace;font-size:0.72rem;color:{tl_colour}">'
+        f'FORENSIC VERDICT: {fr.final_verdict} &nbsp;·&nbsp; '
+        f'THREAT: {fr.threat_level} &nbsp;·&nbsp; '
+        f'RISK SCORE: {fr.risk_score}/100 &nbsp;·&nbsp; '
+        f'CONFIDENCE: {fr.confidence}%</span><br>'
+        f'<span style="font-family:Space Mono,monospace;font-size:0.65rem;color:#4a6a8a">'
+        f'{fr.executive_summary}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    col_a, col_b = st.columns(2, gap="medium")
+
+    with col_a:
+        # File identity
+        section_label("📄 File Identity")
+        id_rows = [
+            ("Type",      fr.file_type or "Unknown"),
+            ("MIME",      fr.mime_type  or "—"),
+            ("Size",      f"{fr.file_size:,} B"),
+            ("SHA-256",   (fr.sha256 or "—")[:32] + "…"),
+            ("MD5",       fr.md5  or "—"),
+            ("SHA-1",     fr.sha1 or "—"),
+        ]
+        st.markdown(
+            '<div class="card">' +
+            "".join(kv_row(k, v, False) for k, v in id_rows) +
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Structural flags
+        section_label("🧬 Structural Findings")
+        struct_items = []
+        if fr.mime_mismatch:       struct_items.append("🚨 MIME/Extension mismatch — masquerading file")
+        if fr.is_polyglot:         struct_items.append("🚨 POLYGLOT FILE — valid as two formats simultaneously")
+        if fr.has_overlay_data:    struct_items.append(f"🚨 Overlay data: {fr.overlay_size:,} B after EOF marker")
+        if fr.is_zip_bomb:         struct_items.append("💣 ZIP BOMB — extraction would exhaust system resources")
+        if fr.has_macros:          struct_items.append("⚠️ VBA macros present")
+        if fr.has_auto_exec:       struct_items.append("🚨 Auto-execute trigger (runs on open)")
+        if fr.has_javascript:      struct_items.append("⚠️ JavaScript detected")
+        if fr.has_shellcode:       struct_items.append("🚨 Shellcode pattern detected")
+        if fr.has_powershell:      struct_items.append("🚨 PowerShell execution pattern")
+        if fr.has_embedded_files:  struct_items.append("⚠️ Embedded files / OLE objects")
+        if fr.timestamp_anomaly:   struct_items.append("⚠️ Timestamp anomaly (stomping/manipulation)")
+        if fr.has_dga_pattern:     struct_items.append("🚨 DGA pattern — algorithmically generated C2 domains")
+        if fr.environment_keyed:   struct_items.append("⚠️ Environment keying (sandbox evasion)")
+        if fr.is_dormant:          struct_items.append("ℹ️ Payload dormant — conditional activation")
+
+        if struct_items:
+            st.markdown(flag_list(struct_items), unsafe_allow_html=True)
+        else:
+            st.caption("No structural anomalies detected.")
+
+    with col_b:
+        # Evasion techniques
+        if fr.evasion_techniques:
+            section_label("🥷 Evasion Techniques")
+            st.markdown(flag_list(fr.evasion_techniques), unsafe_allow_html=True)
+
+        # Network indicators
+        if fr.extracted_domains or fr.extracted_ips or fr.extracted_urls:
+            section_label("🌐 Extracted Network Indicators")
+            if fr.extracted_domains:
+                st.caption(f"Domains ({len(fr.extracted_domains)}): " +
+                           ", ".join(fr.extracted_domains[:8]))
+            if fr.extracted_ips:
+                st.caption(f"IPs ({len(fr.extracted_ips)}): " +
+                           ", ".join(fr.extracted_ips[:5]))
+            if fr.extracted_urls:
+                for url in fr.extracted_urls[:4]:
+                    st.code(url[:120], language=None)
+
+        # AI NLP findings
+        if fr.nlp_intent_label != "UNKNOWN" or fr.nlp_summary:
+            section_label("🤖 AI NLP Analysis")
+            nlp_colour = {"MALICIOUS": "#ff2d55", "SUSPICIOUS": "#ffd060", "BENIGN": "#00ffb4"}.get(
+                fr.nlp_intent_label, "#4a6a8a"
+            )
+            st.markdown(
+                f'<div class="card">'
+                f'<div style="font-family:Space Mono,monospace;font-size:0.68rem;'
+                f'color:{nlp_colour};margin-bottom:0.4rem">Intent: {fr.nlp_intent_label}'
+                f'{" · Family: " + fr.nlp_malware_family if fr.nlp_malware_family else ""}'
+                f'</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:0.63rem;color:#4a6a8a">'
+                f'{fr.nlp_summary or fr.nlp_execution_flow or "—"}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── VT Engine divergence ──────────────────────────────────────────
+    if fr.engine_divergence_reason:
+        with st.expander("🔍 Engine Divergence Analysis", expanded=False):
+            st.markdown(
+                f'<div class="card" style="font-family:Space Mono,monospace;'
+                f'font-size:0.65rem;color:#4a8aaa;white-space:pre-wrap">'
+                f'{fr.engine_divergence_reason}</div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Container discrepancy explanation ─────────────────────────────
+    if fr.discrepancy_reason:
+        with st.expander("💡 Why Clean Container ≠ Clean Hash?", expanded=False):
+            st.markdown(
+                f'<div class="card" style="font-family:Space Mono,monospace;'
+                f'font-size:0.65rem;color:#4a8aaa;white-space:pre-wrap">'
+                f'{fr.discrepancy_reason}</div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Metadata anomalies ────────────────────────────────────────────
+    if fr.metadata_anomalies:
+        with st.expander(f"⚠️ Metadata Anomalies ({len(fr.metadata_anomalies)})", expanded=False):
+            for ma in fr.metadata_anomalies:
+                sev_colours = {
+                    "CRITICAL": "#ff2d55", "HIGH": "#ff9a3c",
+                    "MEDIUM": "#ffd060",   "LOW": "#00c8ff"
+                }
+                c = sev_colours.get(ma.severity, "#4a6a8a")
+                st.markdown(
+                    f'<div style="border-left:3px solid {c};padding:0.3rem 0.6rem;'
+                    f'margin-bottom:0.4rem;font-family:Space Mono,monospace;font-size:0.63rem">'
+                    f'<span style="color:{c}">[{ma.severity}]</span> '
+                    f'<span style="color:#6a9aba">{ma.field}:</span> '
+                    f'<span style="color:#4a8a6a">{ma.value}</span><br>'
+                    f'<span style="color:#3a5a7a">{ma.description}</span></div>',
+                    unsafe_allow_html=True,
+                )
+
+    # ── Forensic IOCs ─────────────────────────────────────────────────
+    if fr.iocs:
+        section_label("🔴 Forensic IOCs")
+        st.markdown(ioc_chips(fr.iocs), unsafe_allow_html=True)
+
+    # ── Forensic flags ────────────────────────────────────────────────
+    if fr.flags:
+        with st.expander(f"🚩 All Forensic Flags ({len(fr.flags)})", expanded=False):
+            st.markdown(flag_list(fr.flags), unsafe_allow_html=True)
+
+    # ── Errors / warnings ────────────────────────────────────────────
+    for e in fr.errors:
+        st.caption(f"⚠️ {e}")
+
+    footer(timestamp, "FORENSIC ENGINE v9")

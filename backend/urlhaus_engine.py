@@ -14,6 +14,13 @@ from typing import Optional
 
 import requests
 
+# ── Caching ───────────────────────────────────────────────────────────────────
+try:
+    from backend.caching import CacheManager as _CacheManager
+    _urlhaus_cache = _CacheManager("urlhaus", ttl_hours=12)
+except ImportError:
+    _urlhaus_cache = None
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -119,6 +126,15 @@ def _post_urlhaus(endpoint: str, payload: dict) -> dict:
     # SECURITY: Sanitize all payload values
     safe_payload = {k: _sanitize_lookup_value(str(v)) for k, v in payload.items()}
 
+    # ── Cache lookup ──────────────────────────────────────────────────
+    # Key: endpoint + sorted payload values (e.g. "host:evil.com")
+    _cache_key = endpoint + ":" + ":".join(f"{k}={v}" for k, v in sorted(safe_payload.items()))
+    if _urlhaus_cache is not None:
+        _cached = _urlhaus_cache.get(_cache_key)
+        if _cached is not None:
+            logger.debug("URLhaus cache HIT [%s]", _cache_key[:50])
+            return _cached
+
     url = f"{URLHAUS_API_BASE}/{endpoint}/"
     try:
         resp = requests.post(
@@ -145,7 +161,11 @@ def _post_urlhaus(endpoint: str, payload: dict) -> dict:
                 return {"error": "non_json_response"}
 
             try:
-                return resp.json()
+                data = resp.json()
+                # Cache successful non-error responses
+                if _urlhaus_cache is not None and "error" not in data:
+                    _urlhaus_cache.set(_cache_key, data)
+                return data
             except Exception as json_exc:
                 logger.warning(
                     "URLhaus JSON decode error for endpoint %r: %s | body[:80]=%r",

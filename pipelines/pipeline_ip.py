@@ -64,7 +64,12 @@ def run(
 
     def _run_otx_ip_parallel():
         if run_otx:
-            from backend.otx_engine import query_ip as _otx_qi
+            from backend.otx_engine import query_ip as _otx_qi, query_indicator as _otx_qi6
+            # FIX v8: Route IPv6 addresses to correct OTX indicator type
+            import re as _re6
+            _is_ipv6 = ":" in ip_raw and _re6.match(r"^[0-9a-fA-F:]+$", ip_raw.strip("[]"))
+            if _is_ipv6:
+                return _otx_qi6(ip_raw.strip("[]"), "IPv6", vt_malicious=0)
             return _otx_qi(ip_raw, vt_malicious=0)
         return None
 
@@ -72,7 +77,12 @@ def run(
         f_ip      = pool.submit(_run_ip)
         f_urlhaus = pool.submit(_run_urlhaus_parallel)
         f_otx     = pool.submit(_run_otx_ip_parallel)
-        ip_res = f_ip.result(timeout=60)
+        try:
+            ip_res = f_ip.result(timeout=60)
+        except Exception as _ip_exc:
+            prog.empty()
+            st.error(f"❌ IP analysis failed: {_ip_exc}")
+            return
         try:
             _uh = f_urlhaus.result(timeout=30)
             if _uh is not None:
@@ -137,10 +147,40 @@ def run(
         if otx_res.score_contribution > 0:
             _score_boosts.append(("OTX AlienVault", otx_res.score_contribution))
 
+        # FIX v7 (False Negative — Tor/HoneyNet):
+        # _check_tor() downloads torproject.org bulk list — blocked in this env.
+        # Result: is_tor=False even for confirmed Tor exit nodes.
+        # OTX "Tor Exit nodes" pulse is authoritative — propagate it back.
+        _otx_iocs_str = " ".join(otx_res.iocs).lower()
+        if "otx_tor_exit_node" in _otx_iocs_str or "tor_exit_node" in _otx_iocs_str:
+            if not ip_res.is_tor:
+                ip_res.is_tor = True
+                ip_res.flags.append(
+                    "🧅 OTX→IP Intel: is_tor=True propagated from OTX pulse "
+                    "'Tor Exit nodes' — torproject.org bulk list was unreachable "
+                    "but OTX classification feed confirms this IP is a Tor exit node."
+                )
+                ip_res.iocs.append(f"TOR_EXIT_NODE:{ip_res.ip}")
+                # Apply same +22 pts that _compute_score would have added
+                # if _check_tor() had succeeded
+                _score_boosts.append(("Tor Exit Node (OTX)", 22))
+
     # Apply all boosts
     for source, pts in _score_boosts:
         ip_res.score = min(ip_res.score + pts, 100)
         ip_res.flags.append(f"📡 {source}: +{pts} pts added to threat score")
+
+    # FIX v7 (Score Floor — Tor):
+    # Confirmed Tor exit node must always be at least MEDIUM (40).
+    # Even with VT=0 and AbuseIPDB=0, anonymisation infrastructure
+    # must never score LOW in a CTI tool.
+    if ip_res.is_tor and ip_res.score < 40:
+        ip_res.flags.append(
+            "🧅 Score Floor: Confirmed Tor Exit Node → minimum MEDIUM (40). "
+            "Tor exit nodes are anonymisation infrastructure — traffic origin "
+            "cannot be attributed."
+        )
+        ip_res.score = 40
 
     # ── Step 4: Render everything with final score ────────────────────
     ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -154,7 +194,7 @@ def run(
     if run_shodan:
         render_shodan_panel(_ip_shodan)
 
-    if run_greynoise:
+    if run_greynoise and _ip_gn is not None:
         render_greynoise_panel(_ip_gn)
 
     if run_urlhaus:
@@ -182,7 +222,9 @@ def run(
         try:
             pdf_bytes = generate_ip_cti_report(ip_res, ip_raw, ts,
                                                 shodan_res=_ip_shodan,
-                                                greynoise_res=_ip_gn)
+                                                greynoise_res=_ip_gn,
+                                                urlhaus_res=urlhaus_res,   # FIX v8
+                                                otx_res=otx_res)           # FIX v8
             safe_name = ip_raw.replace(".","_").replace(":","_")[:40]
             st.download_button(
                 label="Download CTI Report",

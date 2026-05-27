@@ -22,25 +22,7 @@ _BLOCK_TYPES = {
 
 
 def capture_screenshot(url: str, width: int = 1280, height: int = 720) -> Optional[bytes]:
-    """
-    Capture a screenshot of the target URL using Playwright Chromium.
-
-    SECURITY MODEL:
-      - JavaScript is DISABLED — no JS executes in the renderer
-      - All script/XHR/fetch/websocket resource types are blocked at network layer
-      - --no-sandbox is NOT used; Linux sandboxing is preserved via
-        --disable-setuid-sandbox (safer alternative that works in containers)
-      - No cookies, no localStorage, no permissions granted
-      - Hard 8-second timeout; partial render is captured on timeout
-
-    Args:
-        url:    Full URL to visit (must start with http:// or https://)
-        width:  Viewport width  (default 1280)
-        height: Viewport height (default 720)
-
-    Returns:
-        PNG bytes if successful, None if any error occurred.
-    """
+ 
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
 

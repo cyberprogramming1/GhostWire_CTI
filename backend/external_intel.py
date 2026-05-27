@@ -17,6 +17,13 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# ── Caching ───────────────────────────────────────────────────────────────────
+try:
+    from backend.caching import cache_result as _cache
+except ImportError:
+    def _cache(*a, **kw):
+        def _d(fn): return fn
+        return _d
 
 TIMEOUT = 8
 SAFE_UA = {
@@ -126,6 +133,7 @@ SUSPICIOUS_PORTS = {
 }
 
 
+@_cache(engine="shodan", ttl_hours=48, key_arg=0)
 def _query_shodan_internetdb(ip: str) -> dict:
     """
     Shodan InternetDB — free, no API key required.
@@ -145,6 +153,7 @@ def _query_shodan_internetdb(ip: str) -> dict:
     return {}
 
 
+@_cache(engine="shodan", ttl_hours=48, key_arg=0)
 def _query_shodan_api(ip: str, api_key: str) -> dict:
     """
     Shodan full API — requires key.
@@ -332,6 +341,7 @@ GREYNOISE_BENIGN_TAGS = {
 }
 
 
+@_cache(engine="greynoise", ttl_hours=6, key_arg=0)
 def _query_greynoise_community(ip: str) -> dict:
     """
     GreyNoise Community API (free, no key needed).
@@ -355,6 +365,7 @@ def _query_greynoise_community(ip: str) -> dict:
         return {"error": str(e)}
 
 
+@_cache(engine="greynoise", ttl_hours=6, key_arg=0)
 def _query_greynoise_api(ip: str, api_key: str) -> dict:
     """
     GreyNoise full GNQL API.
@@ -431,14 +442,7 @@ def _parse_greynoise_api(data: dict, result: GreyNoiseResult) -> None:
 
 
 def _score_greynoise(result: GreyNoiseResult) -> None:
-    """
-    Score GreyNoise signals.
-
-    Key logic:
-      RIOT = known benign service → score reduction
-      noise=True + classification=malicious → significant risk
-      noise=False = NOT a mass scanner → likely targeted attacker (higher risk)
-    """
+   
     score = 0
 
     if result.riot:
@@ -509,10 +513,7 @@ def _score_greynoise(result: GreyNoiseResult) -> None:
 
 
 def analyze_greynoise(ip: str, api_key: Optional[str] = None) -> GreyNoiseResult:
-    """
-    Query GreyNoise for IP threat context.
-    Always uses the Community API (https://api.greynoise.io/v3/community/{ip}) — no key required.
-    """
+    
     result = GreyNoiseResult()
     data   = _query_greynoise_community(ip)
     _parse_greynoise_community(data, result)

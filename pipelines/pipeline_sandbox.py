@@ -43,9 +43,8 @@ def _rl_record(target: str):
     store[key] = time.monotonic()
 
 
-def _normalise_url(raw: str) -> str:
-    raw = raw.strip()
-    return ("http://" + raw) if raw and not raw.startswith(("http://","https://")) else raw
+# FIX v8: Centralised normalise_url
+from backend.url_utils import normalise_url as _normalise_url
 
 
 def run(
@@ -107,11 +106,18 @@ def run(
             return
         ha_target = ha_file_up.name
         ha_itype  = "file"
+        # FIX v8: Rate limit file submissions by filename
+        _rl_ok, _rl_wait = _rl_check(ha_file_up.name)
+        if not _rl_ok:
+            prog.empty()
+            st.warning(f"⏱ Rate limit: this file was submitted {_RL_COOLDOWN - _rl_wait}s ago. Wait {_rl_wait}s.")
+            return
         prog.progress(10, "Uploading file to Hybrid Analysis…")
         _ha_bytes = ha_file_up.read()
         with st.spinner("File uploaded — sandbox detonation in progress…"):
             if run_ha:
                 ha_res = analyze_file_ha(_ha_bytes, ha_file_up.name, ha_key, env_id=ha_env_id)
+                _rl_record(ha_file_up.name)
             else:
                 ha_res = HAResult(); ha_res.errors.append("HA toggle is off")
 
@@ -127,6 +133,12 @@ def run(
             return
         ha_target = raw_hash
         ha_itype  = "hash"
+        # FIX v8: Rate limit hash submissions
+        _rl_ok, _rl_wait = _rl_check(raw_hash)
+        if not _rl_ok:
+            prog.empty()
+            st.warning(f"⏱ Rate limit: this hash was looked up {_RL_COOLDOWN - _rl_wait}s ago. Wait {_rl_wait}s.")
+            return
         prog.progress(20, "Looking up hash in Hybrid Analysis database…")
         with st.spinner("Querying Hybrid Analysis database…"):
             if run_ha:
@@ -143,6 +155,12 @@ def run(
             prog.empty(); st.error("Invalid IP address format."); return
         ha_target = raw_ha_ip
         ha_itype  = "ip"
+        # FIX v8: Rate limit IP sandbox submissions
+        _rl_ok, _rl_wait = _rl_check(raw_ha_ip)
+        if not _rl_ok:
+            prog.empty()
+            st.warning(f"⏱ Rate limit: this IP was submitted {_RL_COOLDOWN - _rl_wait}s ago. Wait {_rl_wait}s.")
+            return
         prog.progress(20, "Searching Hybrid Analysis for IP associations…")
         with st.spinner("Querying Hybrid Analysis for associated samples…"):
             if run_ha:
@@ -160,7 +178,9 @@ def run(
         st.error("❌ Sandbox pipeline returned no result.")
         return
 
-    render_ha_results(ha_res, ha_itype, ha_target, ts, ollama_model=ollama_model)
+    render_ha_results(ha_res, ha_itype, ha_target, ts,
+                      ollama_model=ollama_model,
+                      run_ai=True)   # FIX v8.1: sidebar has no separate run_ai for sandbox
 
     log_analysis(
         pipeline     = f"sandbox_{ha_itype}",
@@ -170,12 +190,30 @@ def run(
         ioc_count    = len(ha_res.iocs),
     )
 
+    # FIX v8: STIX export for Sandbox pipeline
+    if ha_res.iocs:
+        try:
+            from frontend.stix_panel import render_stix_export_panel
+            render_stix_export_panel(
+                target_url    = str(ha_target)[:80],
+                threat_level  = ha_res.verdict.upper(),
+                score         = ha_res.verdict_score,
+                iocs          = ha_res.iocs,
+                flags         = list(ha_res.signatures),
+                malware_family= getattr(ha_res, "vx_family", None),
+                mitre_ids     = [m.get("technique", "") for m in getattr(ha_res, "mitre_attcks", [])[:6]],
+            )
+        except Exception as _stix_exc:
+            import logging as _sl
+            _sl.getLogger(__name__).warning("STIX export error: %s", _stix_exc)
+
     st.markdown("---")
     st.markdown('<p class="slabel">Export CTI Report</p>', unsafe_allow_html=True)
     with st.spinner("Generating PDF report…"):
         try:
             from backend.ai_analyzer import generate_ha_ai_summary
-            _ha_ai_sum = generate_ha_ai_summary(ha_res, model=ollama_model)
+            # FIX v8: Only call Ollama when HA actually ran (run_ha=True)
+            _ha_ai_sum = generate_ha_ai_summary(ha_res, model=ollama_model) if run_ha else ""
             pdf_bytes  = generate_ha_cti_report(
                 ha_res, ha_itype, str(ha_target)[:80], ts, ai_summary=_ha_ai_sum
             )

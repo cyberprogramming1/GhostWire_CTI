@@ -397,6 +397,14 @@ def analyze_text(
                     "temperature": 0.1,
                     "num_predict": 256,
                 },
+                # FIX v7: Ollama client.chat() has no default timeout — if the model
+                # is slow or the queue is backed up, this call can block for MINUTES.
+                # Inside hash_engine._analyze_content_nlp this runs in the _run_vt
+                # thread — a hang here causes concurrent.futures.TimeoutError(120s)
+                # which has an empty str() and shows as "VirusTotal analysis failed: "
+                # The 'keep_alive' option is not a request timeout — use the underlying
+                # httpx timeout via the options dict workaround:
+                timeout=30,   # 30s hard limit per model attempt
             )
             ollama_reachable = True
             raw_text: str = response["message"]["content"]

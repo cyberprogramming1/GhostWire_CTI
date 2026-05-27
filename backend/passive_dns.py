@@ -12,6 +12,13 @@ import requests
 import logging
 logger = logging.getLogger(__name__)
 
+# FIX v8: Passive DNS caching (24h TTL)
+try:
+    from backend.caching import CacheManager as _PDNS_CM
+    _pdns_cache = _PDNS_CM("passive_dns", ttl_hours=24)
+except Exception:
+    _pdns_cache = None
+
 TIMEOUT = 8
 
 SAFE_HEADERS = {
@@ -223,7 +230,7 @@ def _detect_parked(domain: str) -> tuple[bool, Optional[str]]:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def analyze_passive_dns(
+def _analyze_passive_dns_uncached(
     url: str,
     ht_key: Optional[str] = None,     # HackerTarget pro key (optional)
     st_key: Optional[str] = None,     # SecurityTrails key (optional)
@@ -336,4 +343,26 @@ def analyze_passive_dns(
         result.flags.append("Passive DNS: No anomalies detected")
 
     result.score = min(result.score, 30)
+    return result
+
+
+def analyze_passive_dns(url: str) -> PassiveDNSResult:
+    """FIX v8: Cached wrapper around Passive DNS analysis (24h TTL)."""
+    _key = url.strip().lower()
+    if _pdns_cache is not None:
+        _cached = _pdns_cache.get(_key)
+        if _cached is not None:
+            r = PassiveDNSResult()
+            for _k, _v in _cached.items():
+                if hasattr(r, _k):
+                    setattr(r, _k, _v)
+            logger.debug("Passive DNS cache HIT for %s", _key[:50])
+            return r
+    result = _analyze_passive_dns_uncached(url)
+    if _pdns_cache is not None and not result.errors:
+        try:
+            import dataclasses
+            _pdns_cache.set(_key, dataclasses.asdict(result))
+        except Exception as _pe:
+            logger.debug("Passive DNS cache save error: %s", _pe)
     return result

@@ -29,16 +29,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_css()
-# ─────────────────────────────────────────────────────────────────────────────
-# Rate Limiting
-# ─────────────────────────────────────────────────────────────────────────────
-# VT free tier: 4 req/dəq — arxasındakı həqiqi limit budur.
-# Hər analiz minimum RATE_LIMIT_SECS saniyədən tez edilə bilməz.
-# session_state-də son sorğu zamanı saxlanır — Streamlit rerun-lar arasında persist.
+
 
 _RATE_LIMIT_SECS  = 5     # Minimum saniyə iki analiz arasında
 _MAX_REQ_PER_MIN  = 10    # 1 dəqiqədə maksimum sorğu sayı (VT limit: 4/dəq)
 _REQ_WINDOW_SECS  = 60    # Sayğac sıfırlama pəncərəsi (saniyə)
+
+# FIX v8: Process-level rate limit — prevents multi-tab quota abuse.
+# Single Streamlit process = shared dict across all sessions in the same process.
+import threading as _threading
+_global_req_lock   = _threading.Lock()
+_global_req_times: list = []   # timestamps of ALL requests across all sessions
 
 
 def _check_rate_limit() -> bool:
@@ -63,9 +64,8 @@ def _check_rate_limit() -> bool:
         )
         return False
 
-    # ── 2. Dəqiqə limiti yoxlaması ───────────────────────────
+    # ── 2. Dəqiqə limiti yoxlaması (session-level) ───────────
     history: list = st.session_state.get("gw_req_history", [])
-    # 60 saniyədən köhnə sorğuları çıxar
     history = [t for t in history if now - t < _REQ_WINDOW_SECS]
     if len(history) >= _MAX_REQ_PER_MIN:
         st.warning(
@@ -75,10 +75,21 @@ def _check_rate_limit() -> bool:
         st.session_state["gw_req_history"] = history
         return False
 
+    # ── 3. Process-level global limit (FIX v8: multi-tab protection) ──
+    with _global_req_lock:
+        _global_req_times[:] = [t for t in _global_req_times if now - t < _REQ_WINDOW_SECS]
+        if len(_global_req_times) >= _MAX_REQ_PER_MIN * 3:   # 3x margin for multi-user
+            st.warning(
+                f"⏳ Server-level limit — çox sayda paralel analiz. Bir az gözlə."
+            )
+            return False
+
     # ── Limitlər keçirsə — vaxtı yenilə ─────────────────────
     history.append(now)
     st.session_state["gw_last_req_time"] = now
     st.session_state["gw_req_history"]   = history
+    with _global_req_lock:
+        _global_req_times.append(now)
     return True
 
 
@@ -169,6 +180,26 @@ with st.sidebar:
     st.markdown('<p class="slabel">Audit Log</p>', unsafe_allow_html=True)
     st.caption(f"📋 {get_log_path_str()}")
 
+    # FIX v8: Cache management panel in sidebar
+    st.markdown('<p class="slabel">Cache</p>', unsafe_allow_html=True)
+    try:
+        from backend.caching import get_all_cache_stats, clear_all_caches, expire_old_entries
+        _stats = get_all_cache_stats()
+        _total_entries = sum(s.get("active", 0) for s in _stats)
+        _total_mb = sum(s.get("size_mb", 0) for s in _stats)
+        st.caption(f"💾 {_total_entries} entries · {_total_mb:.1f} MB")
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            if st.button("🧹 Expire", use_container_width=True, help="Remove expired cache entries"):
+                _n = expire_old_entries()
+                st.success(f"Removed {_n} expired entries")
+        with _c2:
+            if st.button("🗑 Clear All", use_container_width=True, help="Clear entire cache"):
+                clear_all_caches()
+                st.success("Cache cleared")
+    except Exception as _ce:
+        st.caption(f"Cache unavailable: {_ce}")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Header
@@ -191,7 +222,7 @@ tab_url, tab_hash, tab_email, tab_ip, tab_sandbox = st.tabs([
     "File / Hash",
     "Email / SMS",
     "IP Intelligence",
-    "🧪 Sandbox",
+    " Sandbox ",
 ])
 
 with tab_url:
@@ -298,7 +329,7 @@ with tab_sandbox:
     c5, _ = st.columns([1, 4])
     with c5:
         ha_go = st.button(
-            "Detonate in Sandbox", use_container_width=True,
+            "Analyse in Sandbox", use_container_width=True,
             key="ha_go", type="primary",
         )
 
@@ -307,9 +338,8 @@ with tab_sandbox:
 # URL input normalisation helper (shared)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _normalise_url(raw: str) -> str:
-    raw = raw.strip()
-    return ("http://" + raw) if raw and not raw.startswith(("http://","https://")) else raw
+# FIX v8: Centralised normalise_url — imported from backend.url_utils
+from backend.url_utils import normalise_url as _normalise_url
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -347,6 +377,7 @@ elif hash_go:
         file_upload=file_upload,
         vt_key=vt_key,
         run_urlhaus=run_urlhaus, run_otx=run_otx,
+        ollama_model=ollama_model,
     )
 
 elif email_go:

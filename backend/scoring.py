@@ -911,8 +911,52 @@ def compute_final_score(
     raw_base += sq_penalty
     extra_flags.extend(sq_flags)
 
-    # Normalize to prevent score inflation
-    normalized = int(raw_base / SCORE_NORMALIZATION_FACTOR)
+    # ── Dynamic normalization (FIX v7) ────────────────────────────────
+    # Previously: hardcoded SCORE_NORMALIZATION_FACTOR = 2.0
+    # Problem: same divisor regardless of how many engines produced signal.
+    # A domain with only WHOIS=40 scores 20 — same as one with VT+WHOIS+SSL.
+    #
+    # New approach: calculate theoretical max from active engines,
+    # then scale raw_base proportionally to 0-100.
+    # This ensures: full-signal = high score, single-signal = proportional.
+    #
+    # Max scores per engine: H=30, WHOIS=40, AI=30, REP=40, DEC=30, SB=30, SSL=50, PDNS=30
+    _engine_maxes = [
+        min(h.score,           30),   # URL Heuristics
+        min(whois_score,       40),   # WHOIS/Age
+        min(adj_ai_score,      30),   # AI NLP
+        min(rep.score,         40),   # Infrastructure/Reputation
+        min(dec.score,         30),   # Tech Deception
+        min(adj_sb_score,      30),   # Sandbox
+        min(ssl_score,         50),   # SSL/TLS
+        min(pdns_score,        30),   # Passive DNS
+    ]
+    # Theoretical max = sum of engines that actually contributed
+    _theoretical_max = sum(
+        _cap for _engine_score, _cap in zip(
+            [h.score, whois_score, adj_ai_score, rep.score,
+             dec.score, adj_sb_score, ssl_score, pdns_score],
+            [30, 40, 30, 40, 30, 30, 50, 30]
+        )
+        if _engine_score > 0
+    )
+
+    if _theoretical_max == 0:
+        normalized = 0
+    elif _theoretical_max <= 100:
+        # Few engines active — use raw_base directly (already small)
+        normalized = int(raw_base * 0.7)   # slight dampening to prevent single-engine overreach
+    else:
+        # Scale: raw_base / theoretical_max * 100, then apply smoothing
+        _raw_pct = (raw_base / _theoretical_max) * 100
+        # Sigmoid-like smoothing: extreme scores (>85) require more signal
+        if _raw_pct >= 90:
+            normalized = int(85 + (_raw_pct - 90) * 1.5)
+        elif _raw_pct >= 70:
+            normalized = int(70 + (_raw_pct - 70) * 0.75)
+        else:
+            normalized = int(_raw_pct)
+
     score = max(0, min(normalized, 100))
 
     # Apply infrastructure override (Rule 1 — absolute, always last)
@@ -1006,5 +1050,29 @@ def compute_final_score(
         )
         score = 35
         sig.score_adjustments.append(("VT Detection Floor", 35 - normalized))
+
+    # ── Rule 8: Tor exit node — minimum MEDIUM floor (40) ────────────────────
+    # FIX v7 (False Negative): A confirmed Tor exit node is ALWAYS a privacy /
+    # anonymisation risk, even when VT=0 and AbuseIPDB=0.  Tor exit nodes are
+    # legitimate infrastructure but represent HIGH anonymisation risk for CTI
+    # purposes — operators, investigators, and enterprise defences all need
+    # to flag them.
+    #
+    # Sources that can set tor_exit_node=True:
+    #   • AbuseIPDB isTor field
+    #   • passive_dns.is_tor
+    #   • OTX pulse names containing "Tor Exit" / "Tor Node"
+    #     (handled in pipeline_url via TOR_EXIT_NODE IOC from otx_engine)
+    #
+    # Floor: 40 (MEDIUM) — not HIGH because Tor itself is not malicious,
+    # but the operator / investigator must be aware.
+    if sig.tor_exit_node and score < 40:
+        extra_flags.append(
+            "🧅 Score Floor: Confirmed Tor Exit Node — minimum MEDIUM (40). "
+            "Tor exit nodes represent anonymisation infrastructure; "
+            "traffic origin cannot be attributed."
+        )
+        score = 40
+        sig.score_adjustments.append(("Tor Exit Node Floor", 40 - score))
 
     return score, sig, extra_flags

@@ -31,9 +31,11 @@
 
 ## `> whoami`
 
-**GhostWire CTI** is an open-source, locally-run Cyber Threat Intelligence platform with a parallel engine architecture. It processes URLs, domains, IPs, file hashes, emails/SMS, and sandbox detonations through 10 independent analysis engines simultaneously.
+**GhostWire CTI** is an open-source, locally-run Cyber Threat Intelligence platform built for analysts who don't want their investigation data leaking to a SaaS vendor.
 
-All analysis runs **on your machine**. No data leaves your environment — Ollama AI runs locally. External APIs are query-only: you ask, they answer.
+Submit a suspicious URL, file hash, email, IP, or raw file — ten analysis engines fire in parallel. Results land in seconds: a risk score, a verdict, a STIX 2.1 bundle ready for your TAXII server, and a PDF forensic report.
+
+The AI runs locally via Ollama. External APIs are query-only — you send the IOC, they return data. Nothing else leaves your machine.
 
 ```
 TARGET ──► [URL / IP / HASH / EMAIL / FILE]
@@ -43,26 +45,27 @@ TARGET ──► [URL / IP / HASH / EMAIL / FILE]
           │                   │
           │  1. Heuristics    │  URL structural analysis
           │  2. WHOIS         │  Domain age, registrar
-          │  3. AI NLP        │  Ollama LLM (local)
+          │  3. AI NLP        │  Ollama LLM (local, offline)
           │  4. VirusTotal    │  70+ AV engines
           │  5. Deception     │  Typosquatting, homoglyph
           │  6. Sandbox       │  Behavioral simulation
-          │  7. SSL/TLS       │  Certificate analysis
-          │  8. Passive DNS   │  IP intel, ASN, geo
-          │  9. Shodan        │  Port scan, CVE, banner
+          │  7. SSL/TLS       │  Certificate anomaly
+          │  8. Passive DNS   │  ASN, geo, VPN detection
+          │  9. Shodan        │  Ports, CVEs, banners
           │  10. GreyNoise    │  Internet scanner classification
           │                   │
-          │  + URLhaus        │  abuse.ch malware URL DB
+          │  + URLhaus        │  abuse.ch malware URL database
           │  + OTX            │  AlienVault threat intel
           │  + Hybrid Anal.   │  Cloud sandbox detonation
+          │  + Forensic Eng.  │  Deep file analysis (PE/PDF/Office)
           └─────────┬─────────┘
                     │
           ┌─────────▼─────────┐
           │  SCORING ENGINE   │  0–100 risk score
           │  VERDICT ENGINE   │  SAFE/LOW/MEDIUM/HIGH/CRITICAL
           │  STIX 2.1 EXPORT  │  TAXII-compatible IOC bundle
-          │  PDF REPORT       │  Forensic report (ReportLab)
-          │  AUDIT LOG        │  JSONL audit trail
+          │  PDF REPORT       │  Full forensic report (ReportLab)
+          │  AUDIT LOG        │  JSONL audit trail, defanged URLs
           └───────────────────┘
 ```
 
@@ -70,271 +73,190 @@ TARGET ──► [URL / IP / HASH / EMAIL / FILE]
 
 ## `> ls -la features/`
 
-### Analysis Pipelines (5 Tabs)
+### 5 Analysis Pipelines
 
-| Tab | What it analyzes | Parallel Engines |
-|-----|-----------------|-----------------|
-| **URL / Domain** | Any URL, domain, or IP | 10+ |
-| **File / Hash** | SHA-256/SHA-1/MD5 lookup or file upload | 4 |
-| **Email / SMS** | Raw headers + body, OCR screenshot | 7 |
+| Tab | Input | Parallel Engines |
+|-----|-------|-----------------|
+| **URL / Domain** | Any URL, domain, or IP address | 10+ |
+| **File / Hash** | SHA-256 / SHA-1 / MD5 lookup or file upload | 4 + Forensic |
+| **Email / SMS** | Raw headers + body, or OCR screenshot | 7 |
 | **IP Intelligence** | Standalone deep IP analysis | 6 |
-| **🧪 Sandbox** | Hybrid Analysis cloud detonation | HA API |
+| **Sandbox** | Hybrid Analysis cloud detonation | HA API |
 
-### 10 Analysis Engines
-
-```
-ENGINE 1 ── URL Heuristics
-  ├─ URL length penalty (>75 = suspicious, >100 = high risk)
-  ├─ '@' symbol detection (credential obfuscation trick)
-  ├─ Raw IP address in URL (instead of domain name)
-  ├─ HTTP vs HTTPS check
-  ├─ Suspicious TLDs (.tk, .ml, .cf, .ga, .gq)
-  ├─ Excessive subdomains (≥4 = subdomain trap)
-  ├─ Long random path segments
-  ├─ Suspicious keywords (login, secure, verify, update)
-  └─ Hex/base64 encoded path components
-
-ENGINE 2 ── WHOIS / Domain Age
-  ├─ Domain age (under 30 days = high risk)
-  ├─ Creation/expiry date anomaly
-  ├─ Registrar reputation (NjAL.la, Freenom → penalty)
-  └─ Privacy-protected WHOIS in suspicious context
-
-ENGINE 3 ── AI NLP (Ollama — local LLM)
-  ├─ Model: phi3:mini / llama3 / llama3.2 / mistral
-  ├─ URGENCY signal (24 hours, act now, final warning)
-  ├─ FINANCIAL_THREAT (payment, prize, tax, crypto)
-  ├─ MANIPULATION (authority impersonation, fear, scarcity)
-  ├─ Domain legitimacy assessment
-  └─ Structured JSON output (deterministic parsing)
-
-ENGINE 4 ── Reputation (VirusTotal + AbuseIPDB)
-  ├─ VT: 70+ AV engine scan
-  ├─ VT Community votes (malicious/harmless)
-  ├─ VT Community comments NLP
-  ├─ VT Relations (linked malicious files)
-  ├─ VT Domain popularity rank
-  ├─ AbuseIPDB: confidence score + report count
-  ├─ Tor exit node detection
-  └─ DNS: A/MX/NS/TXT/SPF/DMARC records
-
-ENGINE 5 ── Technical Deception
-  ├─ Typosquatting (Levenshtein distance ≤2 from known brands)
-  ├─ Homoglyph attack (Unicode lookalike characters)
-  ├─ Punycode / IDN domain detection
-  ├─ URL redirect chain depth
-  ├─ Link shortener detection (bit.ly, tinyurl, t.co...)
-  └─ 50+ global brand database
-
-ENGINE 6 ── Sandbox Simulation
-  ├─ HTTP response header analysis
-  ├─ Server fingerprinting
-  ├─ Redirect chain tracking
-  ├─ Parked domain detection (content pattern matching)
-  ├─ VPN/Proxy ASN identification
-  └─ Content keyword matching
-
-ENGINE 7 ── SSL/TLS Certificate
-  ├─ Certificate validity (start/expiry dates)
-  ├─ Free CA detection (Let's Encrypt, ZeroSSL, Buypass)
-  ├─ SAN (Subject Alt Names) mismatch
-  ├─ Self-signed certificate flag
-  ├─ Wildcard certificate + suspicious domain combo
-  └─ Certificate age (≤7 days = fresh phishing infrastructure)
-
-ENGINE 8 ── Passive DNS + IP Intel
-  ├─ IP geolocation (country, city, ASN)
-  ├─ ASN-based risk (hosting provider abuse scores)
-  ├─ Shared hosting density
-  ├─ VPN/Proxy/Tor provider ASN recognition
-  └─ PTR (reverse DNS) analysis
-
-ENGINE 9 ── Shodan Intel
-  ├─ Open port map (full port inventory)
-  ├─ Service banners (HTTP, SSH, FTP, SMB...)
-  ├─ CVE list (known exploits present)
-  ├─ Shodan tags: tor, vpn, honeypot, cloud
-  ├─ CPE (software version fingerprint)
-  └─ InternetDB fallback (works without API key)
-
-ENGINE 10 ── GreyNoise Context
-  ├─ Mass internet scanner classification
-  ├─ RIOT (known benign services: Google, Cloudflare...)
-  ├─ Actor attribution
-  ├─ Scan intent (what was it looking for?)
-  └─ Community API (works without API key)
-```
-
-### Additional Threat Intelligence Layers
-
-```
-URLHAUS (abuse.ch)
-  ├─ Active malware URL database
-  ├─ Tags: phishing/malware/botnet/c2
-  ├─ URL status (online/offline/unknown)
-  ├─ Associated files (SHA256 + malware family)
-  └─ Host-based lookup (domain + IP)
-
-OTX — AlienVault Open Threat Exchange
-  ├─ Pulse count (how many threat intel reports mention this IOC)
-  ├─ MITRE ATT&CK technique IDs (T1566, T1059...)
-  ├─ Threat actor attribution (Lazarus, APT28...)
-  ├─ Campaign pulse names ("Emotet Wave 2024")
-  ├─ Targeted countries/sectors
-  └─ FP-safe scoring: only contributes when corroborated by VT
-
-HYBRID ANALYSIS (Cloud Sandbox)
-  ├─ URL/File/Hash/Domain/IP detonation
-  ├─ Environments: Windows 10 64-bit / Windows 7 32-bit / Android
-  ├─ Threat score + verdict (malicious/suspicious/clean)
-  ├─ MITRE ATT&CK mapping
-  ├─ Extracted IOCs (domains, IPs, registry keys, dropped files)
-  ├─ Network connections (C2 traffic)
-  ├─ Dropped file analysis
-  ├─ Key rotation: up to 10 API keys in pool (auto-rotates on 429)
-  └─ Polling: real-time status updates (max ~2 min wait)
-```
 ---
 
-## `> cat architecture.txt`
+### Engine Detail
+
+**Engine 1 — URL Heuristics**
+Structural analysis before any network call. Catches raw IPs in URLs, `@` credential tricks, encoded path components, suspicious TLDs (`.tk .ml .cf .ga`), excessive subdomains, and keyword patterns like `login`, `secure`, `verify`, `update`.
+
+**Engine 2 — WHOIS / Domain Age**
+Domains under 30 days old score high. Checks registrar reputation, privacy-protected WHOIS in suspicious context, and creation/expiry anomalies.
+
+**Engine 3 — AI NLP (Ollama, local)**
+Runs `phi3:mini`, `llama3`, `llama3.2`, or `mistral` locally. Detects urgency language, financial threats, authority impersonation, and provides a domain legitimacy assessment. Structured JSON output — no hallucinated free-text verdicts.
+
+**Engine 4 — Reputation (VirusTotal + AbuseIPDB)**
+70+ AV engine scan via VT. Community votes, comments NLP, malicious file relations, domain popularity rank. AbuseIPDB confidence score, report count, Tor exit node detection, DNS record analysis.
+
+**Engine 5 — Technical Deception**
+Levenshtein distance check against 50+ global brands. Unicode homoglyph detection, Punycode/IDN domain flagging, redirect chain depth, link shortener identification.
+
+**Engine 6 — Sandbox Simulation**
+Local behavioral analysis: HTTP response headers, server fingerprinting, redirect chain tracking, parked domain content patterns, VPN/proxy ASN identification.
+
+**Engine 7 — SSL/TLS Certificate**
+Certificate validity, free CA detection (Let's Encrypt, ZeroSSL), SAN mismatch, self-signed flag, wildcard abuse detection. Certs under 7 days old → fresh phishing infrastructure flag.
+
+**Engine 8 — Passive DNS + IP Intel**
+Geolocation, ASN-based risk scoring, shared hosting density, VPN/proxy/Tor ASN recognition, PTR reverse DNS analysis.
+
+**Engine 9 — Shodan**
+Full open port inventory, service banners (HTTP/SSH/FTP/SMB), CVE list, Shodan tags. Falls back to InternetDB — works without an API key.
+
+**Engine 10 — GreyNoise**
+Mass internet scanner classification. RIOT benign service detection (Google, Cloudflare). Actor attribution, scan intent analysis. Community API works without a key.
+
+---
+
+### Additional Intel Layers
+
+**URLhaus (abuse.ch)** — Active malware URL database. Tags: phishing/malware/botnet/c2. Shows URL status (online/offline), associated malware family, and SHA256 of dropped files.
+
+**OTX (AlienVault)** — Pulse count, MITRE ATT&CK technique IDs, threat actor attribution (Lazarus, APT28...), campaign names. FP-safe: only contributes to score when corroborated by VirusTotal.
+
+**Hybrid Analysis** — Cloud sandbox detonation for URLs, files, hashes, domains, and IPs. Environments: Windows 10 64-bit, Windows 7 32-bit, Android. Supports up to 10 API keys in rotation pool — auto-switches on 429.
+
+---
+
+### Forensic Engine (File Upload)
+
+When a file is uploaded, `backend/forensic_engine.py` runs in parallel with the VT/URLhaus/OTX lookups:
 
 ```
-ghostwire_cti_v6/
-│
-├── app.py                      # Streamlit entry point — tab routing, rate limiter
-├── config.py                   # Config singleton + URL defanging + HA key rotator
-├── requirements.txt            # Pinned dependencies (supply-chain attack prevention)
-├── Dockerfile                  # python:3.12-slim + ghostwire non-root user
-├── docker-compose.yml          # ghostwire + ollama containers
-│
-├── backend/                    # Analysis engines — all business logic lives here
-│   ├── ai_analyzer.py          # Ollama LLM client, JSON prompt engineering
-│   ├── async_runner.py         # concurrent.futures parallel engine pool
-│   ├── audit_log.py            # JSONL audit trail, session tracking, URL defanging
-│   ├── cti_report.py           # CTIReport dataclass, score aggregator
-│   ├── deception.py            # Typosquat, homoglyph, redirect, shortener detection
-│   ├── email_engine.py         # Email header parser, OCR, brand impersonation
-│   ├── external_intel.py       # Shodan + GreyNoise API clients
-│   ├── forensic_engine.py      # Deep file forensics (PE, PDF, Office, ZIP)
-│   ├── hash_engine.py          # Hash lookup, file upload, forensic pipeline
-│   ├── heuristics.py           # URL structural analysis (15 checks)
-│   ├── hybrid_analysis.py      # HA Cloud Sandbox, key pool rotation
-│   ├── ip_intel.py             # IP standalone pipeline, geo, ASN
-│   ├── logging_config.py       # Logger setup (DEBUG env var controlled)
-│   ├── otx_engine.py           # AlienVault OTX — MITRE ATT&CK, pulses, actor
-│   ├── passive_dns.py          # DNS, IP geo, ASN, VPN/Proxy ASN detection
-│   ├── pdf_report.py           # ReportLab PDF generator (inline charts, no Plotly)
-│   ├── reputation.py           # VirusTotal + AbuseIPDB API clients
-│   ├── sandbox.py              # Local sandbox simulation (HTTP behavioral analysis)
-│   ├── scoring.py              # Score aggregator, whitelist, override logic
-│   ├── screenshot_engine.py    # Playwright Chromium (headless, JS disabled)
-│   ├── ssl_engine.py           # TLS certificate analysis, CA detection
-│   ├── stix_export.py          # STIX 2.1 bundle + CSV IOC export
-│   ├── urlhaus_engine.py       # abuse.ch URLhaus API client
-│   ├── verdict.py              # Verdict calculator, mitigation library
-│   ├── whois_check.py          # WHOIS domain age, registrar analysis
-│   └── whois_timeline.py       # WHOIS historical timeline builder
-│
-├── frontend/                   # UI rendering components
-│   ├── components.py           # Shared widgets (verdict banner, IOC table, gauge...)
-│   ├── extra_widgets.py        # WHOIS timeline, threat map, Shodan/GN panels
-│   ├── ha_renderer.py          # Hybrid Analysis results renderer
-│   ├── other_renderers.py      # Hash, email, IP pipeline renderers
-│   ├── otx_panel.py            # OTX panel (MITRE chips, actor badges)
-│   ├── stix_panel.py           # STIX 2.1 export UI + download buttons
-│   ├── styles.py               # inject_css() — dark hacker UI, Space Mono font
-│   ├── url_renderer.py         # URL pipeline main renderer
-│   └── urlhaus_panel.py        # URLhaus panel renderer
-│
-├── pipelines/                  # Pipeline orchestrators
-│   ├── pipeline_email.py       # Email/SMS analysis orchestration
-│   ├── pipeline_hash.py        # Hash/File forensic pipeline
-│   ├── pipeline_ip.py          # IP intelligence pipeline
-│   ├── pipeline_sandbox.py     # Hybrid Analysis sandbox pipeline
-│   └── pipeline_url.py         # URL/Domain/IP main pipeline
-│
-├── tests/                      # Unit tests (pytest)
-│   ├── test_config.py          # Config loader tests
-│   ├── test_email_engine.py    # Email parser tests
-│   ├── test_hash_validation.py # Hash format validation
-│   ├── test_otx_engine.py      # OTX engine mock tests
-│   ├── test_scoring.py         # Scoring engine (whitelist, FP, squatting)
-│   ├── test_ssrf.py            # SSRF protection tests
-│   └── test_urlhaus_engine.py  # URLhaus mock tests
-│
-├── assets/                     # Screenshots, GIFs, UI media
-├── .streamlit/
-│   ├── config.toml             # Streamlit server configuration
-│   └── secrets.toml.example    # Secrets template
-└── env.example                 # API key template
+FILE BYTES
+    │
+    ├─ Hash computation       MD5 + SHA1 + SHA256
+    ├─ Magic byte detection   Never trusts the extension
+    ├─ MIME mismatch check    Extension ≠ actual type → masquerading flag
+    │
+    ├─ PE (EXE / DLL)
+    │   ├─ Section entropy    >7.2 = packed/encrypted/crypter
+    │   ├─ Import analysis    VirtualAlloc, CreateRemoteThread, WinExec...
+    │   ├─ Compile timestamp  Zeroed = timestamp stomping
+    │   └─ Overlay data       Bytes after PE = appended payload
+    │
+    ├─ PDF
+    │   ├─ /JS /JavaScript    Embedded script execution
+    │   ├─ /OpenAction /AA    Auto-exec on document open
+    │   ├─ /Launch            External process execution
+    │   ├─ /EmbeddedFile      Hidden file inside PDF
+    │   ├─ Polyglot detection PDF/ZIP dual-format (GootLoader technique)
+    │   └─ Creator tool check msfvenom / Cobalt Strike signatures
+    │
+    ├─ Office (DOCX / XLSX / XLSM)
+    │   ├─ VBA macro presence vbaProject.bin detection
+    │   ├─ Auto-exec triggers AutoOpen, Document_Open, Workbook_Open
+    │   ├─ Chr() obfuscation  >20 Chr() calls = string hiding
+    │   ├─ PowerShell in VBA  Inline PS execution chains
+    │   └─ OLE embedded objs  External template / OLE injection
+    │
+    ├─ ZIP bomb detection
+    │   ├─ Ratio check        >100:1 compression ratio
+    │   ├─ Absolute size cap  >100MB uncompressed → blocked
+    │   ├─ Metadata spoof     file_size=0 with real compressed data
+    │   └─ Nested archives    Matryoshka / 42.zip style
+    │
+    ├─ Sandbox evasion patterns
+    │   ├─ Long sleep()       Timeout evasion
+    │   ├─ IsDebuggerPresent  Anti-analysis
+    │   ├─ VM string checks   vmware / virtualbox / qemu / sandbox
+    │   └─ Mouse / window     User presence detection
+    │
+    └─ Network indicator extraction
+        ├─ URL / domain / IP  Strings embedded in binary
+        ├─ DGA pattern        Random-looking domains + abuse TLDs
+        └─ C2Indicator objs   Confidence-scored with context
 ```
+
+**Result:** `ForensicReport` with risk score, threat level, final verdict, MIME mismatch flag, extracted IOCs, AI NLP label, engine divergence explanation, and a plain-English answer to *"why does this hash flag in VT but look clean in a container?"*
 
 ---
 
 ## `> cat scoring_engine.md`
 
-### Scoring Mechanism (0–100)
-
 ```
-RAW SCORE calculation:
+Score components (0–100 final):
 
-  heuristics_score     (0–30)   URL structure
-  whois_score          (0–40)   Domain age
-  ai_score             (0–30)   Ollama NLP
-  reputation_score     (0–50)   VT + AbuseIPDB
-  deception_score      (0–40)   Typosquat + homoglyph
-  sandbox_score        (0–25)   Behavioral analysis
-  ssl_score            (0–20)   Certificate anomaly
-  pdns_score           (0–20)   Passive DNS
-  shodan_score         (0–15)   Port/CVE intel
-  greynoise_score      (0–15)   Scanner classification
-  urlhaus_score        (0–20)   Malware URL DB
-  otx_score            (0–12)   Threat intel (FP-safe)
+  heuristics_score     URL structure
+  whois_score          Domain age
+  ai_score             Ollama NLP
+  reputation_score     VT + AbuseIPDB
+  deception_score      Typosquat + homoglyph
+  sandbox_score        Behavioral simulation
+  ssl_score            Certificate anomaly
+  pdns_score           Passive DNS
+  shodan_score         Port / CVE intel
+  greynoise_score      Scanner classification
+  urlhaus_score        Malware URL database
+  otx_score            Threat intel (FP-safe)
+  forensic_score       File deep analysis
 
-  RAW    = Σ(engine_scores × weight)
-  NORMAL = RAW / 2.0             ← normalization factor
-  FINAL  = min(NORMAL, 100)      ← hard cap at 100
+  FINAL = min(Σ(engine × weight) / 2.0, 100)
 
-OVERRIDES:
-  ├─ INFRA_OVERRIDE   : VT relations ≥ 8 malicious files → score locked ≥ 85
-  ├─ BRAND_SQUATTING  : 2+ squatting keywords + new domain → +35 pts
-  ├─ SUBDOMAIN_TRAP   : free hosting TLD + deep subdomain chain
-  ├─ AZ_WHITELIST     : .gov.az / .edu.az / .mil.az → fully protected
-  └─ ENTERPRISE_LIST  : paypal.com, apple.com, google.com...
+Overrides:
+  INFRA_OVERRIDE    VT relations ≥ 8 malicious files → locked ≥ 85
+  BRAND_SQUATTING   2+ squatting signals + new domain → +35 pts
+  AZ_WHITELIST      .gov.az / .edu.az / .mil.az → fully protected
 
-VERDICT THRESHOLDS:
-  SAFE      0–19    #00ffb4  (cyber green)
-  LOW       20–39   #78d97a
-  MEDIUM    40–64   #ffd060  (amber)
-  HIGH      65–84   #ff6b35  (orange)
-  CRITICAL  85–100  #ff2d55  (red)
+Verdict thresholds:
+  SAFE      0–19    ████ #00ffb4
+  LOW      20–39    ████ #78d97a
+  MEDIUM   40–64    ████ #ffd060
+  HIGH     65–84    ████ #ff6b35
+  CRITICAL 85–100   ████ #ff2d55
 ```
 
 ---
 
 ## `> cat security_model.txt`
 
-GhostWire implements a well-considered security model throughout the codebase:
+**URL Defanging** — Every URL written to the audit log is defanged: `https://evil.com` → `hxxps://evil[.]com`. Prevents hot-links in log viewers, email clients, and SIEMs.
 
-**URL Defanging** — `config.py::defang_url()`. Every URL written to the audit log is automatically defanged: `https://evil.com` → `hxxps://evil[.]com`. Prevents accidental clicks from log viewers, email clients, and SIEM systems.
+**SSRF Protection** — Screenshot engine runs Playwright headless with JavaScript disabled. `run_screenshot` defaults to off. Tested in `tests/test_ssrf.py`.
 
-**SSRF Protection** — Tested in `tests/test_ssrf.py`. The screenshot engine (`screenshot_engine.py`) runs Playwright in headless + JavaScript-disabled mode. `run_screenshot` defaults to **off**.
+**WHOIS Injection Prevention** — Domain string sanitized with strict regex before shelling out to `python-whois`.
 
-**WHOIS Injection Prevention** — `whois_check.py::_extract_root_domain()` sanitizes the domain string with strict regex (`[a-zA-Z0-9.-_]` only) before passing it to `python-whois`, which shells out to the system `whois` binary.
+**Supply Chain Hardening** — All packages in `requirements.txt` pinned with `==`. No floating versions.
 
-**Supply Chain Attack Prevention** — All packages in `requirements.txt` are pinned with `==`. The comment reads: *"To update: audit changelog first, then update version + re-test."*
+**Non-root Docker** — `ghostwire` user UID/GID 1000. Container never runs as root.
 
-**Non-root Docker User** — The Dockerfile creates a `ghostwire` user with UID/GID 1000. The container never runs as root.
+**Rate Limiting** — Two-layer: 5-second minimum gap between requests (per session) + 10 requests per 60-second window. Process-level counter prevents multi-tab bypass.
 
-**Rate Limiting** — `app.py` enforces two-layer rate limiting:
-- Minimum gap: 5 seconds between requests (same session)
-- Per-minute cap: max 10 requests per 60-second window
+**HA Key Rotation** — Thread-safe round-robin pool, up to 10 Hybrid Analysis API keys. On 429, offending key cools for 65 seconds; pool switches automatically.
 
-**HA Key Rotation** — `config.py::_HAKeyRotator`. Thread-safe round-robin pool supporting up to 10 Hybrid Analysis API keys. On 429, the offending key cools down for 65 seconds and the pool automatically switches to the next available key.
+**FP-Safe OTX Scoring** — OTX pulse count alone never increases the final score. Contribution only activates when VirusTotal also flags the indicator.
 
-**Audit Trail** — `backend/audit_log.py`. Every analysis is written to `~/.ghostwire/audit.jsonl` in JSONL format. Fields: session ID, hostname, request sequence number, defanged target, verdict, score, duration.
+**Audit Trail** — `~/.ghostwire/audit.jsonl`. Fields: session ID, hostname, request sequence, defanged target, verdict, score, duration.
 
-**FP-Safe OTX Scoring** — OTX pulse count alone never increases the score. It only contributes when VirusTotal also flags the indicator (`vt_malicious > 0`). Protects against stale or low-quality community pulses causing false positives.
+---
+
+## `> cat mitre_map.txt`
+
+| Technique | ID | Engine |
+|-----------|-----|--------|
+| Phishing | T1566 | Email + AI NLP |
+| Spearphishing Link | T1566.002 | URL + Deception |
+| Drive-by Compromise | T1189 | Sandbox + SSL |
+| Exploit Public-Facing App | T1190 | Shodan CVE |
+| Command and Scripting Interpreter | T1059 | Forensic (PS1/VBA/JS) |
+| Obfuscated Files or Information | T1027 | Entropy + encoding |
+| Remote Template Injection | T1221 | Office forensic |
+| Exfiltration over C2 | T1041 | C2 indicator extraction |
+| Dynamic Resolution / DGA | T1568 | DGA pattern heuristics |
+| Web Service C2 | T1102 | Domain + sandbox |
+
+ATT&CK technique IDs from OTX pulses render as chips in the UI. Exported in STIX 2.1 bundles and PDF reports.
 
 ---
 
@@ -343,193 +265,183 @@ GhostWire implements a well-considered security model throughout the codebase:
 ### Requirements
 
 - Python 3.12+
-- [Ollama](https://ollama.ai) — for local AI
-- API keys (see table below)
+- [Ollama](https://ollama.ai) (local AI)
+- VirusTotal + AbuseIPDB API keys (minimum)
 
 ### Quick Start
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/yourusername/GhostWire_CTI_v6.git
-cd GhostWire_CTI_v6
+git clone https://github.com/yourusername/GhostWire_CTI.git
+cd GhostWire_CTI
 
-# 2. Virtual environment
 python -m venv venv
-source venv/bin/activate        # Linux/macOS
-# venv\Scripts\activate         # Windows
+source venv/bin/activate          # Windows: venv\Scripts\activate
 
-# 3. Install dependencies
 pip install -r requirements.txt
-
-# 4. Install Playwright Chromium (screenshot engine)
 python -m playwright install chromium
 
-# 5. Configure environment
-cp env.example .env
-# Open .env and fill in your API keys
+cp env.example .env               # fill in your API keys
 
-# 6. Pull Ollama model
-ollama pull phi3:mini            # 2.3GB — fast
-# ollama pull llama3             # 4.7GB — more accurate
+ollama pull phi3:mini             # 2.3 GB — fast
+ollama serve                      # separate terminal
 
-# 7. Start Ollama server (separate terminal)
-ollama serve
-
-# 8. Launch GhostWire
 streamlit run app.py
+# → http://localhost:8501
 ```
 
-Open your browser: `http://localhost:8501`
-
----
-
-### Docker Quick Start
+### Docker
 
 ```bash
-# 1. Configure environment
-cp env.example .env
-# Fill in your API keys
-
-# 2. Build and start
+cp env.example .env               # fill in your API keys
 docker compose build
 docker compose up -d
-
-# 3. Pull Ollama model (one-time)
 docker exec ghostwire-ollama ollama pull phi3:mini
-
-# 4. Open browser
-# http://localhost:8501
+# → http://localhost:8501
 ```
 
-**Docker Compose starts two containers:**
-- `ghostwire` — Streamlit app (port 8501)
-- `ghostwire-ollama` — Local Ollama AI server (port 11434)
+Two containers: `ghostwire` (Streamlit, port 8501) + `ghostwire-ollama` (Ollama, port 11434).
 
 ---
 
 ## `> cat api_keys.md`
 
-| Service | Purpose | Free Tier | Get Key |
-|---------|---------|-----------|---------|
-| **VirusTotal** | 70+ AV engines, community | 500/day, 4/min | [virustotal.com](https://www.virustotal.com/gui/join-us) |
-| **AbuseIPDB** | IP abuse confidence score | 1,000/day | [abuseipdb.com](https://www.abuseipdb.com/register) |
-| **Shodan** | Port scan, CVE, banners | InternetDB (no key needed) | [account.shodan.io](https://account.shodan.io) |
-| **GreyNoise** | Scanner classification | Community API (no key needed) | [greynoise.io](https://greynoise.io) |
-| **URLhaus** | Malware URL database | ~10 req/min without key | [auth.abuse.ch](https://auth.abuse.ch) |
-| **Hybrid Analysis** | Cloud sandbox detonation | 200 req/min, 5 submissions/hr | [hybrid-analysis.com](https://www.hybrid-analysis.com/signup) |
-| **AlienVault OTX** | MITRE ATT&CK, actor attribution | Unlimited (key required) | [otx.alienvault.com](https://otx.alienvault.com/settings) |
-| **Ollama** | Local AI NLP | ∞ (local, free) | [ollama.ai](https://ollama.ai) |
+| Service | Purpose | Free Tier | Link |
+|---------|---------|-----------|------|
+| **VirusTotal** | 70+ AV engines | 500/day, 4/min | [virustotal.com](https://www.virustotal.com/gui/join-us) |
+| **AbuseIPDB** | IP abuse confidence | 1,000/day | [abuseipdb.com](https://www.abuseipdb.com/register) |
+| **Shodan** | Ports, CVEs, banners | InternetDB (no key) | [account.shodan.io](https://account.shodan.io) |
+| **GreyNoise** | Scanner classification | Community API (no key) | [greynoise.io](https://greynoise.io) |
+| **URLhaus** | Malware URL database | ~10 req/min | [auth.abuse.ch](https://auth.abuse.ch) |
+| **Hybrid Analysis** | Cloud sandbox | 200 req/min, 5 sub/hr | [hybrid-analysis.com](https://www.hybrid-analysis.com/signup) |
+| **AlienVault OTX** | MITRE ATT&CK, actors | Unlimited (key required) | [otx.alienvault.com](https://otx.alienvault.com/settings) |
+| **Ollama** | Local AI NLP | ∞ free, runs offline | [ollama.ai](https://ollama.ai) |
 
-**Minimum required:** VirusTotal + AbuseIPDB. All others are optional — analysis continues gracefully if they are unavailable.
+Minimum required: **VirusTotal + AbuseIPDB**. All others degrade gracefully.
 
 ---
 
-## `> cat env.md`
+## `> cat env.example`
 
 ```env
-# ── Required (minimum) ───────────────────────────
+# Required
 VIRUSTOTAL_API_KEY=your_key_here
 ABUSEIPDB_API_KEY=your_key_here
 
-# ── Recommended ──────────────────────────────────
+# Recommended
 HYBRID_ANALYSIS_API_KEY=your_key_here
 OTX_API_KEY=your_key_here
 URLHAUS_API_KEY=your_key_here
 
-# ── HA Key Rotation Pool (optional) ─────────────
+# HA Key Pool (up to 10 keys, auto-rotates on 429)
 HYBRID_ANALYSIS_API_KEY_2=second_key
 HYBRID_ANALYSIS_API_KEY_3=third_key
-# ... supported up to HYBRID_ANALYSIS_API_KEY_10
 
-# ── Shodan + GreyNoise (optional) ────────────────
+# Optional
 SHODAN_API_KEY=your_key_here
 GREYNOISE_API_KEY=your_key_here
 
-# ── Local AI ─────────────────────────────────────
+# Local AI
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=phi3:mini    # phi3:mini | llama3 | llama3.2 | mistral
+OLLAMA_MODEL=phi3:mini
 
-# ── App Behaviour ────────────────────────────────
-SANDBOX_MAX_BYTES=524288   # 512KB — sandbox content fetch limit
-REQUEST_TIMEOUT=8           # HTTP timeout in seconds
+# App
+SANDBOX_MAX_BYTES=524288
+REQUEST_TIMEOUT=8
 DEBUG=false
-
-# ── Audit Log ────────────────────────────────────
-# Default: ~/.ghostwire/audit.jsonl
-# GHOSTWIRE_LOG_PATH=/custom/path/audit.jsonl
-# docker exec ghostwire cat /app/logs/audit.jsonl
 ```
 
 ---
 
-## `> cat forensic_engine.md`
-
-`backend/forensic_engine.py` — deep forensic analysis engine that fires when a file is uploaded:
+## `> cat architecture.txt`
 
 ```
-FILE INPUT
-    │
-    ├─ Hash computation      MD5 + SHA1 + SHA256 (computed simultaneously)
-    ├─ File type detection   Magic bytes (never trusts the extension)
-    ├─ Entropy analysis      Shannon entropy → packed/encrypted = high
-    │
-    ├─ PE Analysis (EXE/DLL)
-    │   ├─ Section entropy (>7.0 = packed/obfuscated)
-    │   ├─ Import table (suspicious API calls: VirtualAlloc, CreateRemoteThread...)
-    │   ├─ Rich header anomaly
-    │   ├─ Overlay data (trailing bytes after PE = appended payload)
-    │   └─ Timestamp anomaly (1970 or future date = tampered)
-    │
-    ├─ PDF Analysis
-    │   ├─ Embedded JavaScript (/JS, /JavaScript in streams)
-    │   ├─ Auto-exec actions (/OpenAction, /AA)
-    │   ├─ Embedded files (/EmbeddedFile)
-    │   ├─ Obfuscation detection (filter chains, encoded streams)
-    │   └─ C2 indicator extraction (URLs/IPs embedded in content)
-    │
-    ├─ Office Analysis (DOCX/XLSX/XLSM — ZIP format)
-    │   ├─ VBA macro detection (presence of vbaProject.bin)
-    │   ├─ Auto-exec macros (AutoOpen, Document_Open, Workbook_Open)
-    │   ├─ External relationships (remote template injection, OLE)
-    │   ├─ PowerShell string detection
-    │   └─ Shellcode pattern matching
-    │
-    ├─ Metadata Anomaly
-    │   ├─ Author/Creator fields (red flag keywords)
-    │   ├─ Software fingerprint (known malware builder signatures)
-    │   ├─ MIME type mismatch (extension ≠ actual file type)
-    │   └─ Creation vs modification time gap
-    │
-    └─ C2 Indicator Extraction
-        ├─ URL patterns (http/https/ftp strings in binary)
-        ├─ IP address patterns
-        ├─ DGA domain pattern heuristics
-        └─ Base64/hex decoded string analysis
+ghostwire_cti/
+│
+├── app.py                      # Streamlit entry point, tab routing, rate limiter
+├── config.py                   # Config singleton, URL defanging, HA key rotator
+├── requirements.txt            # Pinned dependencies
+├── Dockerfile                  # python:3.12-slim, non-root ghostwire user
+├── docker-compose.yml          # ghostwire + ollama containers
+│
+├── backend/
+│   ├── forensic_engine.py      # Deep file analysis: PE/PDF/Office/ZIP/shellcode
+│   ├── hash_engine.py          # Hash lookup + file pipeline
+│   ├── ai_analyzer.py          # Ollama client, JSON prompt engineering
+│   ├── async_runner.py         # concurrent.futures parallel engine pool
+│   ├── audit_log.py            # JSONL audit trail, defanging
+│   ├── caching.py              # CacheManager — VT/WHOIS/SSL/DNS cache layers
+│   ├── deception.py            # Typosquat, homoglyph, redirect, shortener
+│   ├── email_engine.py         # Header parser, OCR, brand impersonation
+│   ├── external_intel.py       # Shodan + GreyNoise clients
+│   ├── heuristics.py           # URL structural analysis (15 checks)
+│   ├── hybrid_analysis.py      # HA Cloud Sandbox, key pool rotation
+│   ├── ip_intel.py             # IP standalone pipeline
+│   ├── otx_engine.py           # AlienVault OTX — MITRE, pulses, actor
+│   ├── passive_dns.py          # DNS, geo, ASN, VPN detection
+│   ├── pdf_report.py           # ReportLab PDF generator
+│   ├── reputation.py           # VirusTotal + AbuseIPDB clients
+│   ├── sandbox.py              # Local behavioral sandbox simulation
+│   ├── scoring.py              # Score aggregator, whitelist, overrides
+│   ├── screenshot_engine.py    # Playwright headless (JS disabled)
+│   ├── ssl_engine.py           # TLS certificate analysis
+│   ├── stix_export.py          # STIX 2.1 bundle + CSV IOC export
+│   ├── urlhaus_engine.py       # abuse.ch URLhaus client
+│   ├── url_utils.py            # Shared URL helpers (normalise, extract, detect)
+│   ├── verdict.py              # Verdict calculator, mitigation library
+│   ├── whois_check.py          # WHOIS domain age, registrar
+│   └── whois_timeline.py       # Historical WHOIS timeline
+│
+├── frontend/
+│   ├── components.py           # Shared widgets: gauge, banner, IOC chips
+│   ├── extra_widgets.py        # WHOIS timeline, threat map, Shodan/GN panels
+│   ├── ha_renderer.py          # Hybrid Analysis results renderer
+│   ├── other_renderers.py      # Hash, email, IP, forensic renderers
+│   ├── otx_panel.py            # OTX panel (MITRE chips, actor badges)
+│   ├── stix_panel.py           # STIX 2.1 export UI
+│   ├── styles.py               # inject_css() — dark UI, Space Mono
+│   ├── url_renderer.py         # URL pipeline main renderer
+│   └── urlhaus_panel.py        # URLhaus panel renderer
+│
+├── pipelines/
+│   ├── pipeline_email.py       # Email/SMS orchestration
+│   ├── pipeline_hash.py        # Hash/File + Forensic Engine orchestration
+│   ├── pipeline_ip.py          # IP intelligence pipeline
+│   ├── pipeline_sandbox.py     # Hybrid Analysis sandbox pipeline
+│   └── pipeline_url.py         # URL/Domain/IP main pipeline
+│
+└── tests/
+    ├── test_scoring.py         # AZ domain tiers, whitelist, overrides
+    ├── test_email_engine.py    # Urgency patterns, brand detection
+    ├── test_hash_validation.py # Hash format validation
+    ├── test_otx_engine.py      # OTX mock responses, FP-safe scoring
+    ├── test_urlhaus_engine.py  # URLhaus mock + graceful degradation
+    ├── test_ssrf.py            # SSRF attack prevention
+    ├── test_config.py          # Config loader, defang, HA key rotator
+    └── test_v8_fixes.py        # Integration: dead files, forensic engine, fixes
 ```
 
 ---
 
 ## `> cat stix_export.md`
 
-GhostWire exports a fully compliant STIX 2.1 / TAXII-compatible IOC bundle:
+GhostWire exports fully compliant STIX 2.1 bundles with deterministic UUIDs — the same IOC always produces the same STIX ID. No duplicate conflicts on repeated TAXII pushes.
 
 ```json
 {
   "type": "bundle",
   "spec_version": "2.1",
-  "id": "bundle--<uuid>",
   "objects": [
-    { "type": "identity",     ... },  // GhostWire tool identity
-    { "type": "indicator",    ... },  // URL/domain/IP/hash IOC
-    { "type": "malware",      ... },  // If signature detected
-    { "type": "threat-actor", ... },  // If OTX attributed
-    { "type": "relationship", ... },  // IOC → threat links
-    { "type": "report",       ... }   // Bundle wrapper
+    { "type": "identity"     },
+    { "type": "indicator"    },
+    { "type": "malware"      },
+    { "type": "threat-actor" },
+    { "type": "relationship" },
+    { "type": "report"       }
   ]
 }
 ```
 
-**Direct TAXII 2.1 integration:**
+Push to TAXII 2.1:
 ```bash
 curl -X POST https://taxii.yourorg.com/api/collections/{id}/objects/ \
   -H "Content-Type: application/taxii+json;version=2.1" \
@@ -537,98 +449,48 @@ curl -X POST https://taxii.yourorg.com/api/collections/{id}/objects/ \
   -d @ghostwire_stix_export.json
 ```
 
-**CSV IOC export** is also available for bulk import into SIEM platforms.
-
-Deterministic UUID generation: the same IOC always produces the same STIX ID (`uuid5` + GhostWire namespace). No duplicate conflicts when pushing to TAXII servers.
-
----
-
-## `> cat pdf_report.md`
-
-`backend/pdf_report.py` generates a complete forensic PDF report using ReportLab:
-
-- **Zero external rendering dependencies** — all charts drawn natively in ReportLab (no Plotly PDF render required)
-- Color palette matches the GhostWire dark UI exactly
-- Report sections include:
-  - Verdict banner (color-coded by threat level)
-  - Engine score breakdown (horizontal bar chart)
-  - IOC list (all URLs defanged)
-  - MITRE ATT&CK technique IDs
-  - WHOIS + SSL certificate details
-  - Hybrid Analysis sandbox results
-  - OTX threat actor attribution
-  - Mitigation steps
+CSV IOC export also available for bulk SIEM import.
 
 ---
 
 ## `> cat tests.md`
 
 ```bash
-# Run all tests
 pytest tests/ -v
-
-# Specific module
-pytest tests/test_scoring.py -v
-pytest tests/test_ssrf.py -v
-
-# With coverage
 pytest tests/ --cov=backend --cov-report=term-missing
 ```
 
-| Test file | What it covers |
-|-----------|---------------|
-| `test_scoring.py` | AZ domain tiering, whitelist, squatting, override, entropy |
-| `test_email_engine.py` | Urgency patterns, brand detection, header parsing |
-| `test_hash_validation.py` | MD5/SHA1/SHA256 format validation |
-| `test_otx_engine.py` | OTX mock responses, FP-safe scoring logic |
+| Test | Covers |
+|------|--------|
+| `test_scoring.py` | AZ domain tiers, whitelist, squatting, overrides, entropy |
+| `test_email_engine.py` | Urgency patterns, brand impersonation, header parsing |
+| `test_hash_validation.py` | MD5 / SHA1 / SHA256 format validation |
+| `test_otx_engine.py` | OTX mock responses, FP-safe scoring |
 | `test_urlhaus_engine.py` | URLhaus mock responses, graceful degradation |
-| `test_ssrf.py` | SSRF attack prevention |
+| `test_ssrf.py` | SSRF prevention |
 | `test_config.py` | Config loader, defang_url, HA key rotator |
+| `test_v8_fixes.py` | Forensic engine wiring, dead file removal, integration |
 
 ---
 
-## `> cat mitre.md`
+## Credits
 
-GhostWire maps analysis findings to the MITRE ATT&CK framework:
-
-| Technique | ID | Detection Engine |
-|-----------|-----|-----------------|
-| Phishing | T1566 | Email engine + AI NLP |
-| Spearphishing Link | T1566.002 | URL + deception engine |
-| Drive-by Compromise | T1189 | Sandbox + SSL |
-| Exploit Public-Facing App | T1190 | Shodan CVE |
-| Command and Scripting | T1059 | Forensic (PS1, VBA, JS) |
-| Obfuscated Files | T1027 | Entropy + encoding detection |
-| Remote Template Injection | T1221 | Office forensic engine |
-| Exfiltration over C2 | T1041 | C2 indicator extraction |
-| Dynamic Resolution | T1568 | DGA pattern heuristics |
-| Web Service C2 | T1102 | Domain + sandbox analysis |
-
-ATT&CK technique IDs from OTX pulses are rendered as chips in the UI panel.
+- [VirusTotal](https://virustotal.com) — Google's AV aggregation platform
+- [AbuseIPDB](https://abuseipdb.com) — IP abuse reporting database
+- [Shodan](https://shodan.io) — The search engine for the internet
+- [GreyNoise](https://greynoise.io) — Internet scanner intelligence
+- [abuse.ch / URLhaus](https://urlhaus.abuse.ch) — Malware URL database
+- [AlienVault OTX](https://otx.alienvault.com) — Open Threat Exchange
+- [Hybrid Analysis](https://hybrid-analysis.com) — Falcon Sandbox (CrowdStrike)
+- [Ollama](https://ollama.ai) — Local LLM runtime
+- [Streamlit](https://streamlit.io) — Python web UI framework
+- [ReportLab](https://reportlab.com) — PDF generation
+- [Playwright](https://playwright.dev) — Headless browser automation
+- [MITRE ATT&CK](https://attack.mitre.org) — Adversary tactic framework
 
 ---
 
-## LICENSE 
-[LICENSE](LICENSE)
-
----
-
-## `> cat credits.md`
-
-GhostWire CTI is built on the following open APIs and projects:
-
-- **[VirusTotal](https://virustotal.com)** — Google's antivirus aggregation platform
-- **[AbuseIPDB](https://abuseipdb.com)** — IP abuse reporting database
-- **[Shodan](https://shodan.io)** — The search engine for the internet
-- **[GreyNoise](https://greynoise.io)** — Internet scanner intelligence
-- **[abuse.ch / URLhaus](https://urlhaus.abuse.ch)** — Malware URL sharing platform
-- **[AlienVault OTX](https://otx.alienvault.com)** — Open Threat Exchange
-- **[Hybrid Analysis](https://hybrid-analysis.com)** — Falcon Sandbox (CrowdStrike)
-- **[Ollama](https://ollama.ai)** — Local LLM runtime
-- **[Streamlit](https://streamlit.io)** — Python web UI framework
-- **[ReportLab](https://reportlab.com)** — PDF generation library
-- **[Playwright](https://playwright.dev)** — Headless browser automation
-- **[MITRE ATT&CK](https://attack.mitre.org)** — Adversary tactic and technique framework
+[MIT License](LICENSE)
 
 ---
 

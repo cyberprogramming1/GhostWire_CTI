@@ -18,6 +18,13 @@ import tldextract
 import logging
 logger = logging.getLogger(__name__)
 
+# FIX v8: SSL caching (12h TTL — certs can be renewed but not that often)
+try:
+    from backend.caching import CacheManager as _SSLCM
+    _ssl_cache = _SSLCM("ssl", ttl_hours=12)
+except Exception:
+    _ssl_cache = None
+
 
 # ── Configuration constants ───────────────────────────────────────────────────
 
@@ -365,7 +372,7 @@ def _analyse_cert(
 
 # ── Public entry point ────────────────────────────────────────────────────────
 
-def analyze_ssl(
+def _analyze_ssl_uncached(
     url: str,
     domain_age_days: Optional[int] = None,
 ) -> SSLResult:
@@ -431,4 +438,27 @@ def analyze_ssl(
         pass
 
     result.score = min(result.score, 50)
+    return result
+
+
+def analyze_ssl(url: str, domain_age_days: int | None = None) -> SSLResult:
+    """FIX v8: Cached wrapper around SSL analysis (12h TTL)."""
+    _key = url.strip().lower()
+    if _ssl_cache is not None:
+        import dataclasses
+        _cached = _ssl_cache.get(_key)
+        if _cached is not None:
+            r = SSLResult()
+            for _k, _v in _cached.items():
+                if hasattr(r, _k):
+                    setattr(r, _k, _v)
+            logger.debug("SSL cache HIT for %s", _key[:50])
+            return r
+    result = _analyze_ssl_uncached(url, domain_age_days=domain_age_days)
+    if _ssl_cache is not None and not result.errors:
+        try:
+            import dataclasses
+            _ssl_cache.set(_key, dataclasses.asdict(result))
+        except Exception as _se:
+            logger.debug("SSL cache save error: %s", _se)
     return result

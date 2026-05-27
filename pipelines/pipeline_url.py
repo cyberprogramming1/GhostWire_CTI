@@ -37,7 +37,9 @@ def _collect_iocs(*engine_results) -> list[str]:
     return out
 
 
-def _engines_triggered(h, w, ai, rep, dec, sb, ssl_res, pdns_res) -> list[str]:
+def _engines_triggered(h, w, ai, rep, dec, sb, ssl_res, pdns_res,
+                          urlhaus_res=None, otx_res=None) -> list[str]:
+    # FIX v8.1: include URLhaus + OTX in triggered engines list
     triggered = []
     if getattr(h,       "score", 0) >= 15: triggered.append("URL Heuristics")
     if getattr(w,       "score", 0) >= 10: triggered.append("WHOIS/Domain Age")
@@ -47,6 +49,10 @@ def _engines_triggered(h, w, ai, rep, dec, sb, ssl_res, pdns_res) -> list[str]:
     if getattr(sb,      "score", 0) >= 10: triggered.append("Sandbox")
     if getattr(ssl_res, "score", 0) >= 10: triggered.append("SSL/TLS")
     if getattr(pdns_res,"score", 0) >= 10: triggered.append("Passive DNS")
+    if urlhaus_res and getattr(urlhaus_res, "score_contribution", 0) > 0:
+        triggered.append("URLhaus")
+    if otx_res and getattr(otx_res, "score_contribution", 0) > 0:
+        triggered.append("OTX AlienVault")
     return triggered
 
 
@@ -79,10 +85,15 @@ def run(
     #   - AI Legitimacy assessment is meaningless for IPs → skip
     #   - URLhaus should use query_host directly → handled in async_runner
     #   - GreyNoise needs ip_address parameter → auto-detected in async_runner
-    import re as _re
-    _IP_PATTERN = _re.compile(r'^\d{1,3}(\.\d{1,3}){3}$')
-    _raw_host = target.replace("http://","").replace("https://","").split("/")[0].split(":")[0].strip()
-    _target_is_ip = bool(_IP_PATTERN.match(_raw_host))
+    import re as _re, ipaddress as _ipa
+    _raw_host = target.replace("http://","").replace("https://","").split("/")[0].split(":")[0].strip("[]")
+    # FIX v8.1: Detect BOTH IPv4 and IPv6 addresses
+    _target_is_ip = False
+    try:
+        _ipa.ip_address(_raw_host)
+        _target_is_ip = True
+    except ValueError:
+        pass
 
     # ── Parallel execution ────────────────────────────────────────────
     results = run_engines_parallel(
@@ -170,17 +181,46 @@ def run(
     # Re-run scoring now that we have rep_res.vt_malicious.
     if otx_res and getattr(otx_res, "available", False):
         from backend.otx_engine import _score_result as _otx_rescore
-        # Clear existing flags/iocs/score and re-score with real VT data
+        # FIX v8.1: Preserve context IOCs (pulse names, MITRE IDs) even when VT clean.
+        # Only clear score_contribution and re-generated flags; keep informational IOCs.
+        _prev_iocs = list(otx_res.iocs)   # save before clear
         otx_res.flags.clear()
         otx_res.iocs.clear()
         otx_res.score_contribution = 0
         _otx_rescore(otx_res, vt_malicious=getattr(rep_res, "vt_malicious", 0))
+        # Re-add context IOCs that weren't re-generated (e.g. MITRE: tags when VT clean)
+        for _ioc in _prev_iocs:
+            if _ioc.startswith("MITRE:") and _ioc not in otx_res.iocs:
+                otx_res.iocs.append(_ioc)
         if otx_res.score_contribution > 0:
             final_score = min(final_score + otx_res.score_contribution, 100)
             extra_flags.append(
                 f"🛸 OTX score contribution: +{otx_res.score_contribution} pts "
                 f"({otx_res.pulse_count} pulses, VT={getattr(rep_res, 'vt_malicious', 0)} malicious)"
             )
+
+        # FIX v7 (False Negative — Tor/HoneyNet IPs):
+        # OTX infrastructure signals (Tor exit, HoneyNet, C2, scanner) are
+        # detected by _detect_infra_signals() inside _score_result() above.
+        # They emit IOC tags like "OTX_TOR_EXIT_NODE:…", "OTX_HONEYNET_FEED:…".
+        # We must propagate these back to BehavioralSignals so that:
+        #   1. sig.tor_exit_node = True → scoring.py Rule 8 fires (MEDIUM floor)
+        #   2. Extra flag shown in UI explaining why score was raised
+        _otx_ioc_strs = " ".join(otx_res.iocs).lower()
+        if "otx_tor_exit_node" in _otx_ioc_strs or "tor_exit_node" in _otx_ioc_strs:
+            if not sig.tor_exit_node:
+                sig.tor_exit_node = True
+                extra_flags.append(
+                    "🧅 OTX→BehavioralSignals: tor_exit_node=True propagated from OTX pulse "
+                    "classification feed — AbuseIPDB isTor field was False but OTX pulse "
+                    "confirms this IP is a Tor exit node."
+                )
+        # Apply Tor floor immediately here too (in case scoring.py ran before OTX)
+        if sig.tor_exit_node and final_score < 40:
+            extra_flags.append(
+                "🧅 Score Floor: Confirmed Tor Exit Node (OTX) — minimum MEDIUM (40)."
+            )
+            final_score = 40
 
     # ── Score floor for IP targets ────────────────────────────────────
     # FIX v7: when an IP is analysed via URL/Domain tab, compute_final_score
@@ -201,7 +241,8 @@ def run(
     all_iocs = _collect_iocs(rep_res, dec_res, sb_res, ssl_res, pdns_res, urlhaus_res, otx_res)
     verdict  = calculate_verdict(
         score             = final_score,
-        engines_triggered = _engines_triggered(h_res, w_res, ai_res, rep_res, dec_res, sb_res, ssl_res, pdns_res),
+        engines_triggered = _engines_triggered(h_res, w_res, ai_res, rep_res, dec_res, sb_res,
+                                               ssl_res, pdns_res, urlhaus_res, otx_res),  # FIX v8.1
         all_iocs          = all_iocs,
         infra_override    = getattr(sig, "infrastructure_override", False),
         subdomain_trap    = getattr(sig, "subdomain_trap_active", False),
@@ -240,11 +281,10 @@ def run(
         render_whois_timeline(timeline_res)
     if run_screenshot:
         render_screenshot_preview(target)
-    if shodan_res and getattr(shodan_res, "available", False):
+    # FIX v8.1: Only render Shodan panel when data is actually available
+    if run_shodan and shodan_res and getattr(shodan_res, "available", False):
         render_shodan_panel(shodan_res)
-    elif run_shodan and shodan_res:
-        render_shodan_panel(shodan_res)
-    if greynoise_res and run_greynoise:
+    if run_greynoise and greynoise_res is not None and getattr(greynoise_res, "available", False):
         render_greynoise_panel(greynoise_res)
 
     # NEW: Render URLhaus panel (always shown if urlhaus was run)
@@ -255,19 +295,22 @@ def run(
     if run_otx and otx_res:
         render_otx_panel(otx_res, mode="url")
 
+    # FIX v8.1: Use pdns_res geo data (already fetched) instead of a second ipinfo.io call
     if getattr(rep_res, "ip_address", None):
         try:
-            from backend.ip_intel import IPIntelResult as _IPR, _fetch_ip_api
-            _geo_result = _IPR()
-            _fetch_ip_api(rep_res.ip_address, _geo_result)
-            if _geo_result.latitude is not None and _geo_result.longitude is not None:
-                render_threat_map(
-                    _geo_result.latitude,
-                    _geo_result.longitude,
-                    rep_res.ip_address,
-                    country=_geo_result.country,
-                    city=_geo_result.city,
-                )
+            _lat = getattr(pdns_res, "latitude",  None)
+            _lon = getattr(pdns_res, "longitude", None)
+            _cty = getattr(pdns_res, "country",   None)
+            _cit = getattr(pdns_res, "city",      None)
+            # Fallback: only make external call if pdns didn't resolve geo
+            if _lat is None or _lon is None:
+                from backend.ip_intel import IPIntelResult as _IPR, _fetch_ip_api
+                _geo_result = _IPR()
+                _fetch_ip_api(rep_res.ip_address, _geo_result)
+                _lat, _lon = _geo_result.latitude, _geo_result.longitude
+                _cty, _cit = _geo_result.country, _geo_result.city
+            if _lat is not None and _lon is not None:
+                render_threat_map(_lat, _lon, rep_res.ip_address, country=_cty, city=_cit)
         except Exception as _map_exc:
             import logging as _ml
             _ml.getLogger(__name__).warning("Threat map geo lookup failed: %s", _map_exc)
@@ -295,6 +338,7 @@ def run(
                 ssl_res=ssl_res, pdns_res=pdns_res,
                 all_iocs=all_iocs, duration=dur, timestamp=ts,
                 shodan_res=shodan_res, greynoise_res=greynoise_res,
+                urlhaus_res=urlhaus_res, otx_res=otx_res,   # FIX v8
                 extra_flags=extra_flags,
             )
             safe_name = target.replace("http://","").replace("https://","").replace("/","_")[:40]

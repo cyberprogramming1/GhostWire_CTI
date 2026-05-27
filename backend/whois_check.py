@@ -14,6 +14,13 @@ import tldextract
 import logging
 logger = logging.getLogger(__name__)
 
+# FIX v8: WHOIS caching (72h TTL — domains rarely re-register that fast)
+try:
+    from backend.caching import CacheManager as _WCM
+    _whois_cache = _WCM("whois", ttl_hours=72)
+except Exception:
+    _whois_cache = None
+
 # ``whois`` is imported lazily inside functions to give a helpful error
 # message if the package is missing rather than crashing at module load.
 
@@ -105,6 +112,17 @@ def _resolve_domain(domain: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def analyze_domain(url: str) -> WhoisResult:
+    # FIX v8: Check cache before hitting whois servers
+    _domain_key = url.strip().lower()
+    if _whois_cache is not None:
+        _cached = _whois_cache.get(_domain_key)
+        if _cached is not None:
+            r = WhoisResult()
+            for _k, _v in _cached.items():
+                if hasattr(r, _k):
+                    setattr(r, _k, _v)
+            logger.debug("WHOIS cache HIT for %s", _domain_key[:50])
+            return r
     """
     Perform WHOIS lookup on the domain extracted from ``url`` and score
     its age against the 30-day phishing-window threshold.
@@ -193,4 +211,17 @@ def analyze_domain(url: str) -> WhoisResult:
             f"Domain is {age_days} days old (~{years} yr) — age looks normal"
         )
 
+    # FIX v8: Cache successful WHOIS results
+    if _whois_cache is not None and result.error is None:
+        try:
+            _whois_cache.set(_domain_key, {
+                "score":          result.score,
+                "domain_age_days": result.domain_age_days,
+                "creation_date":  result.creation_date,
+                "registrar":      result.registrar,
+                "flags":          result.flags[:],
+                "error":          result.error,
+            })
+        except Exception as _we:
+            logger.debug("WHOIS cache save error: %s", _we)
     return result

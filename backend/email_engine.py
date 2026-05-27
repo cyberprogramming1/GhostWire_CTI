@@ -9,6 +9,14 @@ import logging
 logger = logging.getLogger(__name__)
 # Config is loaded via config.py (dotenv handled centrally)
 
+# FIX v8: Email engine caching — prevents API quota burn on repeated emails
+try:
+    from backend.caching import CacheManager as _ECM
+    _email_vt_cache    = _ECM("virustotal",  ttl_hours=24)
+    _email_abuse_cache = _ECM("abuseipdb",   ttl_hours=24)
+except Exception:
+    _email_vt_cache = _email_abuse_cache = None
+
 TIMEOUT = 8
 VT_BASE = "https://www.virustotal.com/api/v3"
 
@@ -309,6 +317,17 @@ def _extract_domain(email: str) -> Optional[str]:
 # ── VT + AbuseIPDB Sender Intel ───────────────────────────────────────────────
 
 def _vt_sender(domain: str, vt_key: str, intel: SenderIntelResult) -> None:
+    # FIX v8: Check cache before VT API call
+    _vt_cache_key = f"email_vt:{domain.lower()}"
+    if _email_vt_cache is not None:
+        _cv = _email_vt_cache.get(_vt_cache_key)
+        if _cv is not None:
+            for _k, _v in _cv.items():
+                if hasattr(intel, _k):
+                    setattr(intel, _k, _v)
+            logger.debug("Email VT cache HIT for %s", domain)
+            return
+
     h = {"x-apikey": vt_key, "Accept": "application/json"}
 
     # Domain scan
@@ -403,8 +422,32 @@ def _vt_sender(domain: str, vt_key: str, intel: SenderIntelResult) -> None:
     except Exception as e:
         intel.errors.append(f"VT relations error: {e}")
 
+    # FIX v8: Save VT sender results to cache
+    if _email_vt_cache is not None and not intel.errors:
+        try:
+            _email_vt_cache.set(_vt_cache_key, {
+                "vt_domain_malicious":   intel.vt_domain_malicious,
+                "vt_domain_total":       intel.vt_domain_total,
+                "vt_domain_categories": intel.vt_domain_categories,
+                "vt_community_votes_mal": getattr(intel, "vt_community_votes_mal", 0),
+                "flags":                 intel.flags[:],
+                "iocs":                  intel.iocs[:],
+            })
+        except Exception as _cse:
+            logger.debug("Email VT cache save error: %s", _cse)
+
 
 def _abuseipdb_sender(domain: str, abuse_key: str, intel: SenderIntelResult) -> None:
+    # FIX v8: Check AbuseIPDB cache
+    _abuse_key_str = f"email_abuse:{domain.lower()}"
+    if _email_abuse_cache is not None:
+        _ca = _email_abuse_cache.get(_abuse_key_str)
+        if _ca is not None:
+            for _k, _v in _ca.items():
+                if hasattr(intel, _k):
+                    setattr(intel, _k, _v)
+            logger.debug("Email AbuseIPDB cache HIT for %s", domain)
+            return
     CATS = {3:"Fraud Orders",4:"DDoS Attack",5:"FTP Brute-Force",7:"Phishing",
             9:"Open Proxy",10:"Web Spam",11:"Email Spam",14:"Port Scan",
             15:"Hacking",16:"SQL Injection",18:"Brute-Force",21:"Web App Attack",22:"SSH Attack"}
@@ -447,6 +490,20 @@ def _abuseipdb_sender(domain: str, abuse_key: str, intel: SenderIntelResult) -> 
                     intel.iocs.append(f"SENDER_ABUSE_CATEGORY:{','.join(intel.abuse_categories[:3])}")
     except Exception as e:
         intel.errors.append(f"AbuseIPDB error: {e}")
+
+    # FIX v8: Save AbuseIPDB results to cache
+    if _email_abuse_cache is not None and not intel.errors:
+        try:
+            _email_abuse_cache.set(_abuse_key_str, {
+                "sender_ip":         getattr(intel, "sender_ip", None),
+                "abuse_confidence":  intel.abuse_confidence,
+                "abuse_reports":     intel.abuse_reports,
+                "abuse_categories":  intel.abuse_categories,
+                "flags":             intel.flags[:],
+                "iocs":              intel.iocs[:],
+            })
+        except Exception as _ace:
+            logger.debug("Email AbuseIPDB cache save error: %s", _ace)
 
 
 def check_sender_intelligence(domain, email, vt_key, abuse_key) -> SenderIntelResult:

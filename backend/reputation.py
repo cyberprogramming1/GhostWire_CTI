@@ -12,6 +12,14 @@ import tldextract
 import logging
 logger = logging.getLogger(__name__)
 
+# ── Caching ───────────────────────────────────────────────────────────────────
+try:
+    from backend.caching import cache_result as _cache
+except ImportError:
+    # Graceful degradation if caching module unavailable
+    def _cache(*a, **kw):
+        def _d(fn): return fn
+        return _d
 
 @dataclass
 class ReputationResult:
@@ -107,6 +115,7 @@ def _vt_headers(key: str) -> dict:
 
 # ── VirusTotal — API queries ─────────────────────────────────────────────────
 
+@_cache(engine="virustotal", ttl_hours=24, key_arg=0)
 def _query_vt_url(url: str, key: str) -> dict:
     """Query VT URL endpoint. Returns full JSON including votes/comments."""
     import base64
@@ -127,6 +136,7 @@ def _query_vt_url(url: str, key: str) -> dict:
         return {"error": str(e)}
 
 
+@_cache(engine="virustotal", ttl_hours=24, key_arg=0)
 def _query_vt_domain(domain: str, key: str) -> dict:
     """Query VT domain endpoint — includes votes, categories, resolutions."""
     try:
@@ -139,6 +149,7 @@ def _query_vt_domain(domain: str, key: str) -> dict:
         return {"error": str(e)}
 
 
+@_cache(engine="virustotal_comments", ttl_hours=12, key_arg=0)
 def _query_vt_comments(resource_id: str, key: str, resource_type: str = "urls") -> list[dict]:
     """
     Fetch community comments for a URL or domain.
@@ -159,6 +170,7 @@ def _query_vt_comments(resource_id: str, key: str, resource_type: str = "urls") 
     return []
 
 
+@_cache(engine="virustotal_votes", ttl_hours=12, key_arg=0)
 def _query_vt_votes(resource_id: str, key: str, resource_type: str = "urls") -> dict:
     """
     Fetch community votes (malicious / harmless) for a URL or domain.
@@ -181,6 +193,7 @@ def _query_vt_votes(resource_id: str, key: str, resource_type: str = "urls") -> 
     return {"malicious": 0, "harmless": 0, "total": 0}
 
 
+@_cache(engine="virustotal_relations", ttl_hours=24, key_arg=0)
 def _query_vt_relations(resource_id: str, key: str, resource_type: str = "urls") -> dict:
     """
     Fetch VT relationship data for a URL or domain.
@@ -511,6 +524,7 @@ def _parse_vt_domain_extra(data: dict, result: ReputationResult) -> None:
 
 # ── AbuseIPDB ───────────────────────────────────────────────────────────────
 
+@_cache(engine="abuseipdb", ttl_hours=24, key_arg=0)
 def _query_abuse(ip: str, key: str) -> dict:
     try:
         r = requests.get(

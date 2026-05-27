@@ -75,6 +75,29 @@ def run(*, email_input: str, email_img,
         ioc_count    = len(em_res.iocs),
     )
 
+    # FIX v8.1: STIX export for Email pipeline
+    if em_res.iocs:
+        try:
+            from frontend.stix_panel import render_stix_export_panel
+            _email_level = (
+                "CRITICAL" if em_res.score >= 85 else
+                "HIGH"     if em_res.score >= 65 else
+                "MEDIUM"   if em_res.score >= 40 else
+                "LOW"      if em_res.score >= 20 else "SAFE"
+            )
+            render_stix_export_panel(
+                target_url    = em_res.sender_domain or (email_input or "email")[:80],
+                threat_level  = _email_level,
+                score         = em_res.score,
+                iocs          = em_res.iocs,
+                flags         = em_res.flags,
+                malware_family= None,
+                verdict_text  = f"Email/SMS forensic analysis. Sender: {em_res.sender_domain or 'unknown'}.",
+            )
+        except Exception as _stix_err:
+            import logging as _sl
+            _sl.getLogger(__name__).warning("Email STIX export error: %s", _stix_err)
+
     st.markdown("---")
     st.markdown('<p class="slabel">Export CTI Report</p>', unsafe_allow_html=True)
     with st.spinner("Generating PDF report…"):

@@ -36,6 +36,8 @@ pypdf==5.9.0
 reportlab==4.4.4
 
 # Browser automation (screenshot engine — JS disabled, no-sandbox removed)
+# FIX v8: After pip install, ALSO run: playwright install chromium
+# Without this step, screenshot feature fails with "browser not found"
 playwright==1.56.0
 
 # Image processing (email screenshot OCR — size-limited via _safe_open_image)

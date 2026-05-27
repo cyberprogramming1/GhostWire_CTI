@@ -105,6 +105,7 @@ def render_ha_results(
     target:     str,
     timestamp:  str,
     ollama_model: str = "phi3:mini",
+    run_ai:      bool = True,   # FIX v8.1: skip Ollama when AI disabled
 ) -> None:
     """
     Render Hybrid Analysis sandbox results in GhostWire style.
@@ -223,7 +224,7 @@ def render_ha_results(
 
         if ha_res.submit_url:
             st.markdown(
-                f'<a href="{_html.escape(ha_res.submit_url)}" target="_blank" '
+                f'<a href="{_html.escape(ha_res.submit_url) if ha_res.submit_url and ha_res.submit_url.startswith(("http://", "https://")) else "#"}" target="_blank" '
                 f'style="font-family:Space Mono,monospace;font-size:0.65rem;'
                 f'color:#00c8ff;text-decoration:none;">'
                 f'🔗 View full report on Hybrid Analysis ↗</a>',
@@ -371,7 +372,9 @@ def render_ha_results(
     st.markdown("---")
 
     # ── Row 7: AI Threat Intelligence Summary ────────────────────────
-    render_ha_ai_summary(ha_res, ollama_model)
+    # FIX v8.1: Only call Ollama when AI is enabled in sidebar
+    if run_ai:
+        render_ha_ai_summary(ha_res, ollama_model)
 
     footer(timestamp, "HYBRID ANALYSIS SANDBOX")
 

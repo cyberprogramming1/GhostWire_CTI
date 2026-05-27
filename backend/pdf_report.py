@@ -796,6 +796,8 @@ def generate_cti_report(
     timestamp:    str,
     shodan_res    = None,
     greynoise_res = None,
+    urlhaus_res   = None,   # FIX v7: added missing param — pipeline passes this, caused TypeError crash
+    otx_res       = None,   # FIX v7: added missing param — pipeline passes this, caused TypeError crash
     extra_flags:  Optional[list] = None,
 ) -> bytes:
     """Generate URL/Domain pipeline CTI PDF. Returns raw bytes."""
@@ -950,6 +952,11 @@ def generate_cti_report(
         engine_flags.append(("Shodan",     getattr(shodan_res,    "flags", []), C_ORANGE))
     if greynoise_res:
         engine_flags.append(("GreyNoise",  getattr(greynoise_res, "flags", []), C_CYAN))
+    # FIX v8: URLhaus and OTX now included in PDF report
+    if urlhaus_res and getattr(urlhaus_res, "available", False):
+        engine_flags.append(("URLhaus (abuse.ch)", getattr(urlhaus_res, "flags", []), C_RED))
+    if otx_res and getattr(otx_res, "available", False):
+        engine_flags.append(("OTX AlienVault",    getattr(otx_res,     "flags", []), C_PURPLE))
 
     for eng_name, flags, eng_color in engine_flags:
         if not flags:
@@ -1033,6 +1040,8 @@ def generate_hash_cti_report(
     h_res,
     timestamp: str,
     duration:  float = 0.0,
+    urlhaus_res = None,   # FIX v8
+    otx_res     = None,   # FIX v8
 ) -> bytes:
     """Generate File/Hash forensics CTI PDF. Returns raw bytes."""
     styles = _build_styles()
@@ -1111,6 +1120,27 @@ def generate_hash_cti_report(
     _section_bar(story, styles, "4. Detection Flags")
     for flag in getattr(h_res, "flags", [])[:20]:
         story.append(Paragraph(f"> {_safe_str(flag, 150)}", styles["flag"]))
+
+    # FIX v8: URLhaus hash section
+    if urlhaus_res and getattr(urlhaus_res, "available", False):
+        _section_bar(story, styles, "4b. URLhaus Malware Database")
+        for flag in getattr(urlhaus_res, "flags", [])[:10]:
+            story.append(Paragraph(f"> {_safe_str(flag, 150)}", styles["flag"]))
+        if getattr(urlhaus_res, "signature", None):
+            story.append(Paragraph(
+                f"Malware Family: {_safe_str(urlhaus_res.signature, 60)}",
+                ParagraphStyle("uh_fam", fontName="Courier-Bold", fontSize=9, textColor=C_RED),
+            ))
+
+    # FIX v8: OTX hash section
+    if otx_res and getattr(otx_res, "available", False):
+        _section_bar(story, styles, "4c. OTX AlienVault Threat Intel")
+        story.append(Paragraph(
+            f"Threat Pulses: {getattr(otx_res, 'pulse_count', 0)} | "            f"ATT&CK: {', '.join(getattr(otx_res, 'attack_ids', [])[:4]) or 'N/A'}",
+            styles["body"],
+        ))
+        for flag in getattr(otx_res, "flags", [])[:8]:
+            story.append(Paragraph(f"> {_safe_str(flag, 150)}", styles["flag"]))
 
     _section_bar(story, styles, "5. Indicators of Compromise")
     for ioc in getattr(h_res, "iocs", [])[:30]:
@@ -1270,8 +1300,10 @@ def generate_ip_cti_report(
     ip_address: str,
     timestamp:  str,
     duration:   float = 0.0,
-    shodan_res  = None,
+    shodan_res    = None,
     greynoise_res = None,
+    urlhaus_res   = None,   # FIX v8
+    otx_res       = None,   # FIX v8
 ) -> bytes:
     """Generate IP Intelligence CTI PDF. Returns raw bytes."""
     styles = _build_styles()
@@ -1361,6 +1393,20 @@ def generate_ip_cti_report(
     _section_bar(story, styles, "6. Detection Flags")
     for flag in getattr(ip_res, "flags", [])[:20]:
         story.append(Paragraph(f"> {_safe_str(flag, 150)}", styles["flag"]))
+
+    # FIX v8: URLhaus and OTX in IP PDF
+    if urlhaus_res and getattr(urlhaus_res, "available", False):
+        _section_bar(story, styles, "6b. URLhaus Host Intelligence")
+        for flag in getattr(urlhaus_res, "flags", [])[:10]:
+            story.append(Paragraph(f"> {_safe_str(flag, 150)}", styles["flag"]))
+    if otx_res and getattr(otx_res, "available", False) and getattr(otx_res, "pulse_count", 0) > 0:
+        _section_bar(story, styles, "6c. OTX AlienVault Threat Intel")
+        story.append(Paragraph(
+            f"Threat Pulses: {getattr(otx_res, 'pulse_count', 0)} | "            f"ATT&CK: {', '.join(getattr(otx_res, 'attack_ids', [])[:4]) or 'N/A'}",
+            styles["body"],
+        ))
+        for flag in getattr(otx_res, "flags", [])[:8]:
+            story.append(Paragraph(f"> {_safe_str(flag, 150)}", styles["flag"]))
 
     _section_bar(story, styles, "7. Indicators of Compromise")
     for ioc in getattr(ip_res, "iocs", [])[:30]:
