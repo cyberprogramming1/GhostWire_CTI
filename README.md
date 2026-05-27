@@ -6,7 +6,7 @@
 ╚██████╔╝██║  ██║╚██████╔╝███████║   ██║   ╚███╔███╔╝██║██║  ██║███████╗
  ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝    ╚══╝╚══╝ ╚═╝╚═╝  ╚═╝╚══════╝
 
-                    C T I   P L A T F O R M   v 6
+                    C T I   P L A T F O R M   v 7
          [ 10-Engine · Multi-Vector · MITRE ATT&CK Mapped · Parallel ]
 ```
 
@@ -123,7 +123,7 @@ Mass internet scanner classification. RIOT benign service detection (Google, Clo
 
 **URLhaus (abuse.ch)** — Active malware URL database. Tags: phishing/malware/botnet/c2. Shows URL status (online/offline), associated malware family, and SHA256 of dropped files.
 
-**OTX (AlienVault)** — Pulse count, MITRE ATT&CK technique IDs, threat actor attribution (Lazarus, APT28...), campaign names. FP-safe: only contributes to score when corroborated by VirusTotal.
+**OTX (AlienVault)** — Pulse count, MITRE ATT&CK technique IDs, threat actor attribution (Lazarus, APT28...), campaign names. Infrastructure-signal pulses (Tor exit nodes, HoneyNet feeds, C2 feeds, scanner feeds) contribute to score independently of VirusTotal — no false negatives on network-classified threats.
 
 **Hybrid Analysis** — Cloud sandbox detonation for URLs, files, hashes, domains, and IPs. Environments: Windows 10 64-bit, Windows 7 32-bit, Android. Supports up to 10 API keys in rotation pool — auto-switches on 429.
 
@@ -199,15 +199,25 @@ Score components (0–100 final):
   shodan_score         Port / CVE intel
   greynoise_score      Scanner classification
   urlhaus_score        Malware URL database
-  otx_score            Threat intel (FP-safe)
+  otx_score            Threat intel (infra-signal aware)
   forensic_score       File deep analysis
 
   FINAL = min(Σ(engine × weight) / 2.0, 100)
 
-Overrides:
-  INFRA_OVERRIDE    VT relations ≥ 8 malicious files → locked ≥ 85
+Score Floor Rules:
+  TOR_EXIT_NODE     Confirmed Tor exit node → minimum MEDIUM (40)
+  VT_DETECTION      VT ≥3 malicious engines → minimum 35
+  INFRA_OVERRIDE    VT relations ≥8 malicious files → locked ≥ 85
   BRAND_SQUATTING   2+ squatting signals + new domain → +35 pts
   AZ_WHITELIST      .gov.az / .edu.az / .mil.az → fully protected
+
+OTX Infrastructure Signals (VT-independent scoring):
+  Tor Exit Node     +20 pts  (anonymisation infrastructure)
+  HoneyNet Feed     +15 pts  (active attacker/scanner feed)
+  C2/Botnet Feed    +18 pts  (malware infrastructure)
+  Brute Force Feed  +12 pts  (active attack feed)
+  Scanner Feed      +10 pts  (mass reconnaissance feed)
+  Malware Feed      +15 pts  (malware distribution feed)
 
 Verdict thresholds:
   SAFE      0–19    ████ #00ffb4
@@ -235,7 +245,15 @@ Verdict thresholds:
 
 **HA Key Rotation** — Thread-safe round-robin pool, up to 10 Hybrid Analysis API keys. On 429, offending key cools for 65 seconds; pool switches automatically.
 
-**FP-Safe OTX Scoring** — OTX pulse count alone never increases the final score. Contribution only activates when VirusTotal also flags the indicator.
+**OTX Infrastructure Scoring** — OTX pulse count alone never increases the score for generic pulses. Infrastructure-signal pulses (Tor exit, HoneyNet, C2, scanner feeds) are authoritative by definition and score independently — VT cannot detect network-classified threats. All other pulse types require VirusTotal corroboration.
+
+**DoS Protection** — PDF/binary scan capped at 5 MB decode limit. ReDoS-safe regex patterns (bounded quantifiers, no unbounded lazy `.*?`). String extraction capped at 5 MB.
+
+**Prompt Injection Prevention** — Filenames sanitized before embedding in Ollama prompts. Only alphanumeric, dot, dash, space, and parentheses are allowed.
+
+**Ollama Model Whitelist** — Only explicitly approved model identifiers are passed to the Ollama API. Unknown model names fall back to `phi3:mini` with a warning.
+
+**SHA-256 Validation** — Hash strings validated with `re.fullmatch(r"[0-9a-fA-F]{64}", ...)` before URL interpolation into VT API calls.
 
 **Audit Trail** — `~/.ghostwire/audit.jsonl`. Fields: session ID, hostname, request sequence, defanged target, verdict, score, duration.
 
@@ -265,7 +283,7 @@ ATT&CK technique IDs from OTX pulses render as chips in the UI. Exported in STIX
 ### Requirements
 
 - Python 3.12+
-- [Ollama](https://ollama.ai) (local AI)
+- [Ollama](https://ollama.com) (local AI)
 - VirusTotal + AbuseIPDB API keys (minimum)
 
 ### Quick Start
@@ -317,6 +335,8 @@ Two containers: `ghostwire` (Streamlit, port 8501) + `ghostwire-ollama` (Ollama,
 | **Ollama** | Local AI NLP | ∞ free, runs offline | [ollama.ai](https://ollama.ai) |
 
 Minimum required: **VirusTotal + AbuseIPDB**. All others degrade gracefully.
+
+> **Hybrid Analysis note:** Free accounts start at `Restricted` auth level (hash lookup only). To enable URL submission and file detonation, visit **hybrid-analysis.com → Profile → API Key** and request upgrade to `Default` level (free, requires account verification).
 
 ---
 
@@ -376,12 +396,13 @@ ghostwire_cti/
 │   ├── heuristics.py           # URL structural analysis (15 checks)
 │   ├── hybrid_analysis.py      # HA Cloud Sandbox, key pool rotation
 │   ├── ip_intel.py             # IP standalone pipeline
-│   ├── otx_engine.py           # AlienVault OTX — MITRE, pulses, actor
+│   ├── logging_config.py       # Centralised logging configuration
+│   ├── otx_engine.py           # AlienVault OTX — MITRE, pulses, actor, infra signals
 │   ├── passive_dns.py          # DNS, geo, ASN, VPN detection
 │   ├── pdf_report.py           # ReportLab PDF generator
 │   ├── reputation.py           # VirusTotal + AbuseIPDB clients
 │   ├── sandbox.py              # Local behavioral sandbox simulation
-│   ├── scoring.py              # Score aggregator, whitelist, overrides
+│   ├── scoring.py              # Score aggregator, whitelist, overrides, Tor floor
 │   ├── screenshot_engine.py    # Playwright headless (JS disabled)
 │   ├── ssl_engine.py           # TLS certificate analysis
 │   ├── stix_export.py          # STIX 2.1 bundle + CSV IOC export
@@ -410,14 +431,18 @@ ghostwire_cti/
 │   └── pipeline_url.py         # URL/Domain/IP main pipeline
 │
 └── tests/
-    ├── test_scoring.py         # AZ domain tiers, whitelist, overrides
-    ├── test_email_engine.py    # Urgency patterns, brand detection
-    ├── test_hash_validation.py # Hash format validation
-    ├── test_otx_engine.py      # OTX mock responses, FP-safe scoring
-    ├── test_urlhaus_engine.py  # URLhaus mock + graceful degradation
-    ├── test_ssrf.py            # SSRF attack prevention
-    ├── test_config.py          # Config loader, defang, HA key rotator
-    └── test_v8_fixes.py        # Integration: dead files, forensic engine, fixes
+    ├── conftest.py                  # Shared fixtures and mocks
+    ├── test_caching.py              # CacheManager behaviour
+    ├── test_config.py               # Config loader, defang_url, HA key rotator
+    ├── test_email_engine.py         # Urgency patterns, brand detection
+    ├── test_hash_validation.py      # MD5 / SHA1 / SHA256 format validation
+    ├── test_otx_engine.py           # OTX mock responses, infra-signal scoring
+    ├── test_scoring.py              # AZ domain tiers, whitelist, overrides
+    ├── test_scoring_normalization.py# Score normalisation edge cases
+    ├── test_ssrf.py                 # SSRF prevention
+    ├── test_urlhaus_engine.py       # URLhaus mock + graceful degradation
+    ├── test_urlhaus_integration.py  # URLhaus integration tests
+    └── test_v8_fixes.py             # Forensic wiring, dead file removal, fixes
 ```
 
 ---
@@ -462,17 +487,19 @@ pytest tests/ --cov=backend --cov-report=term-missing
 
 | Test | Covers |
 |------|--------|
-| `test_scoring.py` | AZ domain tiers, whitelist, squatting, overrides, entropy |
+| `test_scoring.py` | AZ domain tiers, whitelist, squatting, overrides, Tor floor |
+| `test_scoring_normalization.py` | Score normalisation edge cases |
 | `test_email_engine.py` | Urgency patterns, brand impersonation, header parsing |
 | `test_hash_validation.py` | MD5 / SHA1 / SHA256 format validation |
-| `test_otx_engine.py` | OTX mock responses, FP-safe scoring |
+| `test_otx_engine.py` | OTX mock responses, infrastructure-signal scoring |
 | `test_urlhaus_engine.py` | URLhaus mock responses, graceful degradation |
+| `test_urlhaus_integration.py` | URLhaus end-to-end integration |
+| `test_caching.py` | CacheManager hit/miss/expiry behaviour |
 | `test_ssrf.py` | SSRF prevention |
 | `test_config.py` | Config loader, defang_url, HA key rotator |
 | `test_v8_fixes.py` | Forensic engine wiring, dead file removal, integration |
 
 ---
-
 ## Credits
 
 - [VirusTotal](https://virustotal.com) — Google's AV aggregation platform
@@ -499,5 +526,5 @@ pytest tests/ --cov=backend --cov-report=term-missing
 > target acquired
 > analysis complete
 > stay ghost.
-                                        — GhostWire CTI v6
+                                        — GhostWire CTI v7
 ```
