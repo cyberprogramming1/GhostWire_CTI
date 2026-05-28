@@ -406,10 +406,7 @@ def query_url_host(url: str) -> URLhausResult:
                     result.sha256_hash = result.sha256_hash or p.get("response_sha256")
                     result.md5_hash = result.md5_hash or p.get("response_md5")
         elif status in ("invalid_url", "invalid_host", "invalid_format"):
-            # FIX v7: bare domain (e.g. "malware.biz") will get invalid_url from /url/
-            # endpoint — that's expected. We still run the host lookup in Step 2.
-            # Do NOT set available=False here; just log quietly and continue.
-            # The host lookup result will set available correctly.
+            result.errors.append(f"URLhaus URL lookup rejected: invalid_url format")
             logger.debug(
                 "URLhaus /url/ rejected input %r as %r — will try host lookup",
                 url, status,
@@ -636,7 +633,7 @@ def query_host(host: str) -> URLhausResult:
     elif status in ("invalid_host", "invalid_ip", "invalid_format"):
         result.available = False
         result.errors.append(
-            f"URLhaus: Host query rejected — {status} "
+            f"URLhaus: Invalid host query rejected — {status}"
             f"(check host/IP format)"
         )
     elif status:

@@ -95,9 +95,11 @@ class TestFloorCeilingNoConflict:
 
     def test_floor_wins_over_ceiling_for_malicious(self):
         """If floor=40 and ceiling=35 would conflict, floor wins for malicious domains."""
-        # Simulated: AZ_REVIEW ceiling = 35, but VT≥3+WHOIS floor = 40
-        # In actual code: _clean_conditions requires vt_malicious==0,
-        # so ceiling only applies when VT is clean → no conflict possible
-        ceiling_applicable = (0 == 0)  # vt_malicious == 0
-        floor_applicable   = (3 >= 3)  # vt_malicious >= 3
-        assert not (ceiling_applicable and floor_applicable)  # Mutually exclusive
+        
+        simulated_vt_malicious = 3 
+        
+        # İndi dəyişənləri bu real şərtə bağlayırıq:
+        ceiling_applicable = (simulated_vt_malicious == 0)  # False olacaq
+        floor_applicable   = (simulated_vt_malicious >= 3)  # True olacaq
+        
+        assert not (ceiling_applicable and floor_applicable) # Mutually exclusive

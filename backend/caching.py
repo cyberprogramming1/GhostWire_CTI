@@ -67,6 +67,7 @@ def _make_cache_key(engine: str, target: str) -> str:
 def _defang(target: str) -> str:
    
     try:
+        # uses canonical defang_url
         from config import defang_url as _dfu
         return _dfu(str(target))
     except Exception:
