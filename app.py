@@ -19,7 +19,7 @@ from config import cfg, ha_key_pool
 from backend.logging_config import setup_logging
 setup_logging()   # Configure GhostWire logger (level from DEBUG env var)
 from backend.hybrid_analysis import ENV_WIN10_64, ENV_WIN7_32, ENV_ANDROID
-from backend.audit_log       import get_log_path_str
+from backend.audit_log       import get_log_path_str, get_threat_level_counts
 from frontend.styles         import inject_css
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -177,8 +177,77 @@ with st.sidebar:
         "10. Verdict Engine\n\n"
         "⚡ v6: Engines 3-8 run in parallel"
     )
-    st.markdown('<p class="slabel">Audit Log</p>', unsafe_allow_html=True)
-    st.caption(f"📋 {get_log_path_str()}")
+    st.markdown('<p class="slabel">Audit Dashboard</p>', unsafe_allow_html=True)
+    try:
+        import plotly.graph_objects as _go
+
+        _threat_counts = get_threat_level_counts(limit=200)
+        _total_scans   = sum(_threat_counts.values())
+
+        _LEVEL_COLOURS = {
+            "CRITICAL": "#ff2d55",
+            "HIGH":     "#ff6b35",
+            "MEDIUM":   "#ffd060",
+            "LOW":      "#78d97a",
+            "SAFE":     "#00ffb4",
+        }
+
+        _levels  = list(_threat_counts.keys())
+        _values  = [_threat_counts[l] for l in _levels]
+        _colours = [_LEVEL_COLOURS[l] for l in _levels]
+        _max_val = max(_values) if any(v > 0 for v in _values) else 1
+
+        if _total_scans == 0:
+            st.markdown(
+                '<span style="font-family:Space Mono,monospace;font-size:0.65rem;'                'color:#2a4060">No scans yet — run an analysis first.</span>',
+                unsafe_allow_html=True,
+            )
+        else:
+            _fig = _go.Figure()
+            _fig.add_trace(_go.Bar(
+                y=_levels, x=[_max_val] * len(_levels), orientation="h",
+                marker=dict(color=["rgba(255,255,255,0.04)"] * len(_levels), line=dict(width=0)),
+                showlegend=False, hoverinfo="skip",
+            ))
+            _fig.add_trace(_go.Bar(
+                y=_levels, x=_values, orientation="h",
+                marker=dict(color=_colours, opacity=0.85, line=dict(width=0)),
+                text=[str(v) if v > 0 else "" for v in _values],
+                textposition="inside",
+                textfont=dict(family="Space Mono, monospace", size=9, color="#060a10"),
+                hovertemplate="<b>%{y}</b>: %{x} scan(s)<extra></extra>",
+                showlegend=False,
+            ))
+            _fig.update_layout(
+                barmode="overlay",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(t=4, b=4, l=0, r=4),
+                height=130,
+                xaxis=dict(visible=False, range=[0, _max_val * 1.15]),
+                yaxis=dict(
+                    tickfont=dict(family="Space Mono, monospace", size=9, color="#4a6a8a"),
+                    tickmode="array", tickvals=_levels, ticktext=_levels,
+                    autorange="reversed", gridcolor="rgba(0,0,0,0)",
+                ),
+                font=dict(color="#c0d4e8"),
+            )
+            st.plotly_chart(
+                _fig, use_container_width=True,
+                config={"displayModeBar": False, "staticPlot": True},
+                key="audit_threat_chart",
+            )
+
+        st.markdown(
+            f'<span style="font-family:Space Mono,monospace;font-size:0.62rem;'
+            f'color:#2a4060">📊 {_total_scans} total scans</span>'
+            f'<br><span style="font-family:Space Mono,monospace;font-size:0.58rem;'
+            f'color:#1a2a3a;word-break:break-all">📋 {get_log_path_str()}</span>',
+            unsafe_allow_html=True,
+        )
+    except Exception as _ae:
+        st.caption(f"📋 {get_log_path_str()}")
+        st.caption(f"Chart unavailable: {_ae}")
 
     # FIX v8: Cache management panel in sidebar
     st.markdown('<p class="slabel">Cache</p>', unsafe_allow_html=True)

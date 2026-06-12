@@ -482,7 +482,7 @@ CSV IOC export also available for bulk SIEM import.
 
 ```bash
 pytest tests/ -v
-pytest tests/ --cov=backend --cov-report=term-missing
+PYTHONUTF8=1 pytest tests/ --cov=backend --cov-report=term-missing
 ```
 
 | Test | Covers |

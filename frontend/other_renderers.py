@@ -194,7 +194,16 @@ def render_email_results(em_res, timestamp: str) -> None:
             e_str = str(e).lower()
             # FIX v7: Ollama unavailability is NOT a real error — it's expected
             # when Ollama is not running locally. Show as info, not red error.
-            if "all ollama models failed" in e_str or "heuristics only" in e_str:
+            _ollama_unavailable_signals = (
+                "all ollama models failed",
+                "heuristics only",
+                "cannot reach ollama",
+                "ollama not running",
+                "ollama not reachable",
+                "connection refused",
+                "ai analysis skipped",
+            )
+            if any(sig in e_str for sig in _ollama_unavailable_signals):
                 st.markdown(
                     '<div style="font-family:Space Mono,monospace;font-size:0.65rem;'
                     'color:#4a6a8a;margin-top:0.3rem">'

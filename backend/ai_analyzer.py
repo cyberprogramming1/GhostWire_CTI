@@ -13,10 +13,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _get_ollama_client():
-    """Return an ollama.Client pointed at the correct host."""
+    """
+    Return an ollama.Client pointed at the correct host.
+    Compatible with both old (<=0.4.x) and new (>=0.5.x) ollama library versions.
+    - v0.5+: timeout is accepted by Client.__init__()
+    - v0.4.x: timeout is not supported at all — silently ignored via try/except
+    """
     import ollama  # type: ignore
     host = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-    return ollama.Client(host=host)
+    try:
+        return ollama.Client(host=host, timeout=60)
+    except TypeError:
+        # Older ollama library version — does not support timeout kwarg
+        return ollama.Client(host=host)
 
 
 def _get_ollama_base_url() -> str:
@@ -300,6 +309,14 @@ Overall threat score: {final_score}/100"""
             return result
 
         except Exception as exc:
+            err_str = str(exc)
+            if "connection" in err_str.lower() or "refused" in err_str.lower():
+                # Ollama not running — no point trying more models
+                result.error = (
+                    "Ollama not running. Start it: `ollama serve` "
+                    "and pull a model: `ollama pull phi3:mini`"
+                )
+                return result
             logger.debug("Legitimacy model '%s' failed: %s", candidate, exc)
             continue
 
@@ -397,14 +414,6 @@ def analyze_text(
                     "temperature": 0.1,
                     "num_predict": 256,
                 },
-                # FIX v7: Ollama client.chat() has no default timeout — if the model
-                # is slow or the queue is backed up, this call can block for MINUTES.
-                # Inside hash_engine._analyze_content_nlp this runs in the _run_vt
-                # thread — a hang here causes concurrent.futures.TimeoutError(120s)
-                # which has an empty str() and shows as "VirusTotal analysis failed: "
-                # The 'keep_alive' option is not a request timeout — use the underlying
-                # httpx timeout via the options dict workaround:
-                timeout=30,   # 30s hard limit per model attempt
             )
             ollama_reachable = True
             raw_text: str = response["message"]["content"]
@@ -444,7 +453,7 @@ def analyze_text(
                     "Ollama not running. Start it with: `ollama serve`\n"
                     "Then pull a model: `ollama pull phi3:mini`"
                 )
-                result.flags.append("⚠ Ollama service not running — AI analysis skipped")
+                # Flag removed: error shown as caption in engine_card, flag would duplicate it
                 result.score = 0
                 return result
             else:
@@ -456,9 +465,9 @@ def analyze_text(
     if not ollama_reachable:
         result.error = (
             "Cannot reach Ollama. Start it: `ollama serve` "
-            "and pull a model: `ollama pull phi3:mini`"
+            "and pull a model: `ollama pull phi3:mini` (heuristics only)"
         )
-        result.flags.append("⚠ Ollama not reachable — AI analysis skipped (heuristics only)")
+        # Flag removed: error shown as friendly caption, flag would duplicate it
     else:
         result.error = (
             f"No compatible model found. Pull one: `ollama pull phi3:mini`\n"
@@ -574,7 +583,11 @@ Respond ONLY with valid JSON — no markdown, no code fences, no extra text:
             return out
 
         except Exception as exc:
-            out.error = str(exc)[:120]
+            err_str = str(exc)
+            if "connection" in err_str.lower() or "refused" in err_str.lower():
+                out.error = "Ollama not running — start with: `ollama serve`"
+                return out
+            out.error = err_str[:120]
             continue
 
     if not out.summary:

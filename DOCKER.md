@@ -76,6 +76,12 @@ docker compose up -d
 ## 5. Addım — Ollama modelini yüklə (bir dəfəlik)
 
 ```powershell
+docker compose down
+# Volume adını tap
+docker volume ls | findstr ollama
+#silmək üçün 
+docker volume rm ollama_name
+# yeniden yuklemek 
 docker exec ghostwire-ollama ollama pull phi3:mini
 ```
 

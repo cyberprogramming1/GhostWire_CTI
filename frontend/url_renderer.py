@@ -224,9 +224,29 @@ def render_url_results(
         )
 
     with c2:
+        # FIX: Ollama unavailability -> friendly info caption, not warning error
+        _ai_caption = ""
+        if ai_res.error:
+            _ai_err_lower = str(ai_res.error).lower()
+            _ollama_unavail = (
+                "cannot reach ollama",
+                "ollama not running",
+                "ollama not reachable",
+                "all ollama models failed",
+                "connection refused",
+                "ai analysis skipped",
+                "heuristics only",
+            )
+            if any(_s in _ai_err_lower for _s in _ollama_unavail):
+                _ai_caption = (
+                    "ℹ️ Ollama not available — heuristic analysis used. "
+                    "Run `ollama serve` locally for AI-enhanced detection."
+                )
+            else:
+                _ai_caption = f"⚠ {ai_res.error}"
         engine_card(
             "🟣 AI NLP Engine", ai_res.flags,
-            caption=(f"⚠ {ai_res.error}" if ai_res.error else ""),
+            caption=_ai_caption,
         )
         engine_card(
             "🔴 Infrastructure", rep_res.flags,

@@ -177,3 +177,35 @@ def get_recent_logs(n: int = 50) -> list[dict]:
 
 def get_log_path_str() -> str:
     return str(_get_log_path())
+
+
+def get_threat_level_counts(limit: int = 200) -> dict[str, int]:
+    """
+    Return counts of each threat level from the last `limit` audit entries.
+    Always returns all 5 levels — missing ones default to 0.
+    Order is fixed: CRITICAL → HIGH → MEDIUM → LOW → SAFE.
+    Never raises — returns all-zero dict on any error.
+    """
+    counts: dict[str, int] = {
+        "CRITICAL": 0,
+        "HIGH":     0,
+        "MEDIUM":   0,
+        "LOW":      0,
+        "SAFE":     0,
+    }
+    try:
+        log_path = _get_log_path()
+        if not log_path.exists():
+            return counts
+        lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+        for line in lines[-limit:]:
+            try:
+                entry = json.loads(line)
+                level = str(entry.get("threat_level", "")).upper().strip()
+                if level in counts:
+                    counts[level] += 1
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return counts
